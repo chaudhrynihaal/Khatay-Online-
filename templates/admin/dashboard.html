@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Companies{% endblock %}
+{% block page_title %}Companies{% endblock %}
+{% block content %}
+
+<div class="card card-accent">
+  <h2 style="margin-top:0;">Add a new company</h2>
+  <form method="post" action="{{ url_for('admin_create_company') }}">
+    <div class="form-row">
+      <div class="field">
+        <label>Company name</label>
+        <input type="text" name="company_name" required>
+      </div>
+      <div class="field">
+        <label>Trial length (days)</label>
+        <input type="number" name="trial_days" value="14" min="1">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label>Admin username (for their first login)</label>
+        <input type="text" name="admin_username" required>
+      </div>
+      <div class="field">
+        <label>Admin password</label>
+        <input type="text" name="admin_password" minlength="6" required>
+      </div>
+      <div class="field">
+        <label>Admin full name (optional)</label>
+        <input type="text" name="admin_full_name">
+      </div>
+      <div class="field">
+        <label>Admin email (optional, for "Forgot password?")</label>
+        <input type="email" name="admin_email">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Create Company</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;">All companies</h2>
+  {% if companies %}
+  <table>
+    <thead><tr><th>Name</th><th>Status</th><th>Expiry</th><th>Created</th><th></th></tr></thead>
+    <tbody>
+      {% for c in companies %}
+      <tr>
+        <td><a href="{{ url_for('admin_company_detail', company_id=c.id) }}">{{ c.name }}</a></td>
+        <td>
+          {% if c.subscription_status == 'active' %}<span class="badge badge-active">Active</span>
+          {% elif c.subscription_status == 'trial' and not c.is_expired %}<span class="badge badge-trial">Trial</span>
+          {% else %}<span class="badge badge-expired">{{ c.subscription_status|title }}{% if c.is_expired %} (expired){% endif %}</span>
+          {% endif %}
+        </td>
+        <td>{{ c.subscription_expiry or "—" }}</td>
+        <td>{{ c.created_at[:10] }}</td>
+        <td><a href="{{ url_for('admin_company_detail', company_id=c.id) }}" class="btn btn-secondary btn-sm">Manage</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state"><div class="icon">🏢</div>No companies yet — add your first one above.</div>
+  {% endif %}
+</div>
+{% endblock %}

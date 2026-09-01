@@ -1,0 +1,30 @@
+# Secrets - never commit
+.env
+.env.*
+
+# Databases - the platform master DB and every tenant's DB contain real
+# customer data and password hashes, never source code; must never be
+# committed regardless of whether this repo is public or private
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+tenants/
+
+# Local backups / generated files
+backups/
+*.pdf
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+venv/
+.venv/
+env/
+*.egg-info/
+
+# OS cruft
+.DS_Store
+Thumbs.db

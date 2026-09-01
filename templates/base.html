@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ company_name }}{% endblock %} · Khatay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('theme_css') }}">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <link rel="manifest" href="{{ url_for('pwa_manifest') }}">
+  <meta name="theme-color" content="{{ theme_colors.primary if theme_colors else '#6f42c1' }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Khatay">
+  <script src="{{ url_for('static', filename='js/searchable-select.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/barcode-scanner.js') }}" defer></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('{{ url_for("pwa_service_worker") }}').catch(function () {});
+      });
+    }
+  </script>
+  <script>
+    // CSRF: every <form method="post"> on the page (they're all
+    // server-rendered before this script runs - even the ones with
+    // JS-cloned line-item rows still clone into one already-present
+    // <form>, never a brand new one) gets a hidden csrf_token field
+    // added automatically, so no individual template needs to carry
+    // one by hand. window.CSRF_TOKEN is exposed too, for the handful of
+    // places that submit via fetch() instead of a real <form> (see
+    // searchable-select.js and the inline barcode-scan quick-add
+    // scripts on the Sale/Purchase pages), which send it as an
+    // X-CSRFToken header instead.
+    (function () {
+      var token = document.querySelector('meta[name="csrf-token"]');
+      window.CSRF_TOKEN = token ? token.content : '';
+      document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('form[method="post" i]').forEach(function (form) {
+          if (form.querySelector('input[name="csrf_token"]')) return;
+          var input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'csrf_token';
+          input.value = window.CSRF_TOKEN;
+          form.appendChild(input);
+        });
+      });
+    })();
+  </script>
+</head>
+<body>
+  <div id="offline-banner" hidden style="background:#b45309; color:#fff; font-size:12.5px; text-align:center; padding:6px 12px;">
+    You're offline — showing cached data. New entries won't save until you're back online.
+  </div>
+  <script>
+    (function () {
+      var banner = document.getElementById('offline-banner');
+      function sync() { banner.hidden = navigator.onLine; }
+      window.addEventListener('online', sync);
+      window.addEventListener('offline', sync);
+      sync();
+    })();
+  </script>
+  <div class="flashes">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+  </div>
+
+  {% if current_user and not hide_shell %}
+  <div class="sidebar-backdrop" onclick="closeSidebar()"></div>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="dot"></span> {{ company_name if current_company else "Khatay" }}</div>
+      <nav>
+        {% if current_user.role == 'super_admin' %}
+          <a href="{{ url_for('admin_dashboard') }}" class="{{ 'active' if request.endpoint == 'admin_dashboard' }}">Companies</a>
+          <a href="{{ url_for('admin_subscriptions') }}" class="{{ 'active' if request.endpoint == 'admin_subscriptions' }}">Subscriptions</a>
+          <a href="{{ url_for('admin_change_password') }}" class="{{ 'active' if request.endpoint == 'admin_change_password' }}">Change Password</a>
+        {% elif request.path.startswith('/kiryana') %}
+          <a href="{{ url_for('kiryana_dashboard') }}" class="{{ 'active' if request.endpoint == 'kiryana_dashboard' }}">Dashboard</a>
+          <div class="section-label">Kiryana</div>
+          <a href="{{ url_for('kiryana_inventory') }}" class="{{ 'active' if request.endpoint == 'kiryana_inventory' }}">Inventory</a>
+          <a href="{{ url_for('kiryana_sales') }}" class="{{ 'active' if request.endpoint == 'kiryana_sales' }}">Sale Book</a>
+          <a href="{{ url_for('kiryana_purchases') }}" class="{{ 'active' if request.endpoint == 'kiryana_purchases' }}">Purchase List</a>
+          <a href="{{ url_for('kiryana_returns') }}" class="{{ 'active' if request.endpoint == 'kiryana_returns' }}">Returns</a>
+          <a href="{{ url_for('kiryana_cashbook') }}" class="{{ 'active' if request.endpoint == 'kiryana_cashbook' }}">Cash Book</a>
+          <a href="{{ url_for('kiryana_ledger') }}" class="{{ 'active' if request.endpoint in ['kiryana_ledger', 'kiryana_ledger_transaction_edit', 'kiryana_ledger_payment_edit'] }}">Ledger</a>
+          <a href="{{ url_for('kiryana_expenses') }}" class="{{ 'active' if request.endpoint == 'kiryana_expenses' }}">Expenses</a>
+        {% elif request.path.startswith('/hardware') %}
+          <a href="{{ url_for('hardware_dashboard') }}" class="{{ 'active' if request.endpoint == 'hardware_dashboard' }}">Dashboard</a>
+          <div class="section-label">Hardware</div>
+          <a href="{{ url_for('hardware_inventory') }}" class="{{ 'active' if request.endpoint == 'hardware_inventory' }}">Inventory</a>
+          <a href="{{ url_for('hardware_parties') }}" class="{{ 'active' if request.endpoint in ['hardware_parties', 'hardware_edit_party'] }}">Customers &amp; Suppliers</a>
+          <a href="{{ url_for('hardware_quotations') }}" class="{{ 'active' if request.endpoint == 'hardware_quotations' }}">Quotations</a>
+          <a href="{{ url_for('hardware_sales') }}" class="{{ 'active' if request.endpoint == 'hardware_sales' }}">Sale Book</a>
+          <a href="{{ url_for('hardware_purchases') }}" class="{{ 'active' if request.endpoint == 'hardware_purchases' }}">Purchase List</a>
+          <a href="{{ url_for('hardware_returns') }}" class="{{ 'active' if request.endpoint == 'hardware_returns' }}">Returns</a>
+          <a href="{{ url_for('hardware_cashbook') }}" class="{{ 'active' if request.endpoint == 'hardware_cashbook' }}">Cash Book</a>
+          <a href="{{ url_for('hardware_ledger') }}" class="{{ 'active' if request.endpoint in ['hardware_ledger', 'hardware_ledger_transaction_edit', 'hardware_ledger_payment_edit'] }}">Ledger</a>
+          <a href="{{ url_for('hardware_expenses') }}" class="{{ 'active' if request.endpoint == 'hardware_expenses' }}">Expenses</a>
+        {% else %}
+          <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Dashboard</a>
+          <div class="section-label">Master Data</div>
+          <a href="{{ url_for('parties') }}" class="{{ 'active' if request.endpoint == 'parties' }}">Parties</a>
+          <a href="{{ url_for('quality') }}" class="{{ 'active' if request.endpoint == 'quality' }}">Quality / Items</a>
+          {% if current_user.role == 'admin' %}
+          <a href="{{ url_for('data_import_page') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('data_import') }}">Import Data</a>
+          {% endif %}
+          <div class="section-label">Entry</div>
+          <a href="{{ url_for('transactions') }}" class="{{ 'active' if request.endpoint == 'transactions' }}">Purchase &amp; Sale</a>
+          <a href="{{ url_for('bookings') }}" class="{{ 'active' if request.endpoint in ['bookings'] }}">Bookings</a>
+          <a href="{{ url_for('recovery') }}" class="{{ 'active' if request.endpoint == 'recovery' }}">Receipt &amp; Payment</a>
+          <a href="{{ url_for('capital_expense') }}" class="{{ 'active' if request.endpoint == 'capital_expense' }}">Capital &amp; Expense</a>
+          <a href="{{ url_for('contra') }}" class="{{ 'active' if request.endpoint == 'contra' }}">Contra Entries</a>
+          <div class="section-label">Reports</div>
+          <a href="{{ url_for('report_ledger') }}" class="{{ 'active' if request.endpoint == 'report_ledger' }}">Party Ledger</a>
+          <a href="{{ url_for('report_receivable') }}" class="{{ 'active' if request.endpoint == 'report_receivable' }}">Receivable Ledger</a>
+          <a href="{{ url_for('report_payable') }}" class="{{ 'active' if request.endpoint == 'report_payable' }}">Payable Ledger</a>
+          <a href="{{ url_for('report_brokerage') }}" class="{{ 'active' if request.endpoint == 'report_brokerage' }}">Brokerage</a>
+          <a href="{{ url_for('report_cashbook') }}" class="{{ 'active' if request.endpoint == 'report_cashbook' }}">Cash Book</a>
+          <a href="{{ url_for('report_profit') }}" class="{{ 'active' if request.endpoint == 'report_profit' }}">Profit &amp; Capital</a>
+          <a href="{{ url_for('report_stock') }}" class="{{ 'active' if request.endpoint == 'report_stock' }}">Stock</a>
+          <a href="{{ url_for('report_trial_balance') }}" class="{{ 'active' if request.endpoint == 'report_trial_balance' }}">Trial Balance</a>
+          <div class="section-label">Account</div>
+          {% if current_user.role == 'admin' %}
+          <a href="{{ url_for('team') }}" class="{{ 'active' if request.endpoint == 'team' }}">Team</a>
+          {% endif %}
+          <a href="{{ url_for('company_settings') }}" class="{{ 'active' if request.endpoint == 'company_settings' }}">Settings</a>
+          <a href="{{ url_for('backup') }}">Download Backup</a>
+          <a href="{{ url_for('backup_history') }}" class="{{ 'active' if request.endpoint == 'backup_history' }}">Backup History</a>
+        {% endif %}
+      </nav>
+      <div class="sidebar-footer">
+        {{ current_user.full_name or current_user.username }}<br>
+        {% if current_user.role != 'super_admin' %}
+        <a href="{{ url_for('business_select') }}">Switch Business</a> ·
+        {% endif %}
+        <a href="{{ url_for('logout') }}">Sign out</a>
+      </div>
+    </aside>
+
+    <div class="main">
+      <div class="topbar">
+        <div style="display:flex; align-items:center; min-width:0;">
+          <button type="button" class="menu-toggle" onclick="openSidebar()" aria-label="Open menu"><span></span></button>
+          <h1 style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{% block page_title %}{% endblock %}</h1>
+        </div>
+        <div class="user-chip">
+          <div class="avatar">{{ (current_user.full_name or current_user.username)[0]|upper }}</div>
+          <div>
+            {{ current_user.full_name or current_user.username }}
+            <div style="font-size:11px; color:var(--ink-soft); font-weight:600; text-transform:uppercase; letter-spacing:.03em;">
+              {% if current_user.role == 'super_admin' %}Platform Admin{% else %}{{ current_company.name if current_company else '' }} · {{ current_user.role|title }}{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="content">
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </div>
+  {% else %}
+    {% block content_bare %}{% endblock %}
+  {% endif %}
+
+  <script>
+    setTimeout(function () {
+      document.querySelectorAll('.flash.success').forEach(function (el) {
+        el.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(24px)';
+        setTimeout(function () { el.remove(); }, 400);
+      });
+    }, 3500);
+    // error/warning flashes stay until the user dismisses them, since
+    // they often explain why a page unexpectedly changed (e.g. being
+    // signed out of one account by signing into another)
+    document.querySelectorAll('.flash.error').forEach(function (el) {
+      el.style.cursor = 'pointer';
+      el.title = 'Click to dismiss';
+      el.addEventListener('click', function () { el.remove(); });
+    });
+
+    // ---------- mobile sidebar toggle ----------
+    function openSidebar() {
+      var sb = document.getElementById('sidebar');
+      if (sb) sb.classList.add('open');
+      document.body.classList.add('sidebar-open');
+    }
+    function closeSidebar() {
+      var sb = document.getElementById('sidebar');
+      if (sb) sb.classList.remove('open');
+      document.body.classList.remove('sidebar-open');
+    }
+    // tapping a nav link on mobile should close the menu, not leave it open
+    // behind the page that just navigated
+    document.querySelectorAll('.sidebar nav a').forEach(function (a) {
+      a.addEventListener('click', closeSidebar);
+    });
+
+    // ---------- wrap wide tables so they scroll horizontally within their
+    // own box on small screens, instead of breaking the whole page layout ----------
+    document.querySelectorAll('.content table').forEach(function (t) {
+      if (t.closest('.table-scroll')) return;
+      // tables with editable dropdowns inside them (e.g. the multi-line
+      // Sale/Purchase item entry) skip this wrap - overflow-x:auto here
+      // would also clip the searchable-select dropdown's vertical
+      // overflow, since a table cell can't scroll one axis without the
+      // other per the CSS overflow spec
+      if (t.classList.contains('no-scroll-wrap')) return;
+      var wrap = document.createElement('div');
+      wrap.className = 'table-scroll';
+      t.parentNode.insertBefore(wrap, t);
+      wrap.appendChild(t);
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Edit Payment{% endblock %}
+{% block page_title %}Edit Payment{% endblock %}
+{% block content %}
+
+<div class="card card-accent">
+  <form method="post">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    <div class="form-row">
+      <div class="field"><label>Date</label><input type="date" name="date" value="{{ payment.date }}" required></div>
+      <div class="field"><label>Party</label><input type="text" value="{{ party.name if party else '' }}" disabled></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Amount*</label><input type="number" step="0.01" name="amount" value="{{ payment.amount }}" required></div>
+      <div class="field" style="flex:2;"><label>Description</label><input type="text" name="description" value="{{ payment.description or '' }}"></div>
+    </div>
+    <button type="submit" class="btn btn-primary">Save Changes</button>
+    <a href="{{ return_to }}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}

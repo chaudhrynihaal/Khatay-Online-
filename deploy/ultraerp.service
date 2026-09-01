@@ -1,0 +1,31 @@
+# deploy/ultraerp.service
+#
+# Makes ULTRA ERP run as a proper background service on the server:
+# starts automatically on boot, restarts itself if it ever crashes,
+# and keeps running with no terminal window needed - unlike running
+# it on a laptop, this doesn't depend on anyone's screen staying open.
+#
+# Installed by deploy/setup.sh - you shouldn't need to touch this file
+# by hand.
+
+[Unit]
+Description=ULTRA ERP web application
+After=network.target
+
+[Service]
+Type=simple
+User=ultraerp
+WorkingDirectory=/opt/ultraerp
+Environment="PORT=8000"
+EnvironmentFile=/opt/ultraerp/.env
+ExecStart=/opt/ultraerp/venv/bin/python3 /opt/ultraerp/serve.py
+Restart=always
+RestartSec=3
+
+# modest safety limits - restart if it somehow runs away, but don't
+# let a crash loop hammer the machine
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

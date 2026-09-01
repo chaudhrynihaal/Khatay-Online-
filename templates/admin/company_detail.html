@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ company.name }}{% endblock %}
+{% block page_title %}{{ company.name }}{% endblock %}
+{% block content %}
+
+<a href="{{ url_for('admin_dashboard') }}">&larr; All companies</a>
+
+<div class="card" style="background:var(--primary-light); border-color:var(--primary);">
+  <p style="margin:0; font-size:13px; color:var(--ink-soft);">
+    <strong>Platform admin view.</strong> This page manages {{ company.name }}'s subscription and
+    login accounts only — you cannot see their parties, transactions, or reports from here.
+    That data lives entirely in their own database.
+  </p>
+</div>
+
+<div class="card" style="margin-top:14px; background:var(--primary-light); border-color:var(--primary);">
+  <strong>Platform Admin view.</strong> You are managing {{ company.name }}'s subscription and user
+  accounts only — you are not signed into their account and cannot see their parties, transactions,
+  or financial data from here.
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;">Subscription</h2>
+  <form method="post" action="{{ url_for('admin_update_subscription', company_id=company.id) }}">
+    <div class="form-row">
+      <div class="field">
+        <label>Status</label>
+        <select name="status">
+          <option value="trial" {{ 'selected' if company.subscription_status == 'trial' }}>Trial</option>
+          <option value="active" {{ 'selected' if company.subscription_status == 'active' }}>Active</option>
+          <option value="expired" {{ 'selected' if company.subscription_status == 'expired' }}>Expired</option>
+          <option value="suspended" {{ 'selected' if company.subscription_status == 'suspended' }}>Suspended</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Expiry date (leave blank for no expiry)</label>
+        <input type="date" name="expiry" value="{{ company.subscription_expiry or '' }}">
+      </div>
+    </div>
+    <div class="field">
+      <label>Notes</label>
+      <textarea name="notes" rows="2">{{ company.notes or '' }}</textarea>
+    </div>
+    <button type="submit" class="btn btn-primary">Save Subscription</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;">Add a user</h2>
+  <form method="post" action="{{ url_for('admin_create_user', company_id=company.id) }}">
+    <div class="form-row">
+      <div class="field"><label>Username</label><input type="text" name="username" required></div>
+      <div class="field"><label>Password</label><input type="text" name="password" minlength="6" required></div>
+      <div class="field"><label>Full name</label><input type="text" name="full_name"></div>
+      <div class="field"><label>Email</label><input type="email" name="email"></div>
+      <div class="field">
+        <label>Role</label>
+        <select name="role"><option value="staff">Staff</option><option value="admin">Admin</option></select>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Add User</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;">Users at {{ company.name }}</h2>
+  {% if users %}
+  <table>
+    <thead><tr><th>Username</th><th>Full name</th><th>Role</th><th></th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.username }}</td>
+        <td>{{ u.full_name or "—" }}</td>
+        <td>{{ u.role|title }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_delete_user', user_id=u.id) }}" onsubmit="return confirm('Remove this user?');">
+            <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No users yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

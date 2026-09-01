@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Brokerage{% endblock %}
+{% block page_title %}Brokerage{% endblock %}
+{% block content %}
+
+<form method="get" style="display:flex; gap:10px; align-items:end; margin-bottom:16px;">
+  <div class="field" style="margin-bottom:0; width:240px;">
+    <label>Broker</label>
+    <select name="broker_id" onchange="this.form.submit()">
+      <option value="">All brokers</option>
+      {% for b in brokers %}<option value="{{ b.id }}" {{ 'selected' if b.id == broker_filter }}>{{ b.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field" style="margin-bottom:0; width:280px;">
+    <label>Search (broker, party, D.O.#, voucher#)</label>
+    <input type="text" name="q" value="{{ search_q or '' }}">
+  </div>
+  <button type="submit" class="btn btn-secondary">Search</button>
+  {% if search_q or broker_filter %}<a href="{{ url_for('report_brokerage') }}" class="btn btn-secondary">Clear</a>{% endif %}
+  <a href="{{ url_for('report_excel', report_name='brokerage', broker_id=broker_filter) }}" class="btn btn-primary">Export to Excel</a>
+</form>
+
+<div class="stat-grid">
+  <div class="stat-card"><div class="label">Total Brokerage</div><div class="value money">Rs. {{ "{:,.0f}".format(total) }}</div></div>
+</div>
+
+<div class="card">
+  {% if groups %}
+  <table>
+    <thead><tr><th>Voucher # / Broker</th><th>Date</th><th>D.O.#</th><th>Party</th><th>Item</th><th class="num">Qty</th><th class="num">Amount</th><th class="num">Brokerage</th></tr></thead>
+    <tbody>
+      {% for grp in groups %}
+      <tr class="party-row"><td>{{ grp.broker_name }}</td><td colspan="5"></td><td class="num money">{{ "{:,.2f}".format(grp.subtotal) }}</td><td></td></tr>
+      {% for r in grp.rows %}
+      <tr>
+        <td style="padding-left:24px;">{{ r.voucher_display }}</td>
+        <td>{{ r.date }}</td><td>{{ r.do_no or "—" }}</td><td>{{ r.party_name or "—" }}</td>
+        <td>{{ r.item_name or "—" }}</td>
+        <td class="num money">{{ "{:g}".format(r.qty) if r.qty else "—" }}</td>
+        <td class="num money">{{ "{:,.2f}".format(r.amount) }}</td>
+        <td class="num money">{{ "{:,.2f}".format(r.brokerage) }}</td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state"><div class="icon">🤝</div>No brokerage earned yet — assign a broker (with a configured rate) to a Sale or Purchase entry.</div>
+  {% endif %}
+</div>
+{% endblock %}

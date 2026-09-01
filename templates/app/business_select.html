@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Choose Business{% endblock %}
+{% block content_bare %}
+<div class="business-select-wrap">
+  <div class="business-select-head">
+    <div class="brand" style="justify-content:center;"><span class="dot"></span> {{ company_name }}</div>
+    <h1>What do you deal in?</h1>
+    <p class="sub">Pick a business type to open its tools.</p>
+  </div>
+  <div class="business-grid">
+    <a href="{{ url_for('dashboard') }}" class="business-card">
+      <div class="icon">🧵</div>
+      <div class="name">Yarn</div>
+    </a>
+    <a href="{{ url_for('kiryana_dashboard') }}" class="business-card">
+      <div class="icon">🌾</div>
+      <div class="name">Kiryana</div>
+    </a>
+    <a href="{{ url_for('hardware_dashboard') }}" class="business-card">
+      <div class="icon">🔩</div>
+      <div class="name">Hardware</div>
+    </a>
+    <div class="business-card disabled">
+      <div class="icon">🧶</div>
+      <div class="name">Fabric</div>
+      <div class="soon">Coming soon</div>
+    </div>
+    <div class="business-card disabled">
+      <div class="icon">🤝</div>
+      <div class="name">Broker</div>
+      <div class="soon">Coming soon</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

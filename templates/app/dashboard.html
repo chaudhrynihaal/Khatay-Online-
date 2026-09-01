@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="label">Total Receivable</div>
+    <div class="value money">Rs. {{ "{:,.0f}".format(total_receivable) }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Overdue Receivable</div>
+    <div class="value money {{ 'red' if overdue_receivable > 0 }}">Rs. {{ "{:,.0f}".format(overdue_receivable) }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Total Payable</div>
+    <div class="value money">Rs. {{ "{:,.0f}".format(total_payable) }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Net Profit (this month)</div>
+    <div class="value money">Rs. {{ "{:,.0f}".format(profit.net_profit) }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;">Quick actions</h2>
+  <div style="display:flex; gap:10px; flex-wrap:wrap;">
+    <a href="{{ url_for('transactions') }}" class="btn btn-primary">+ New Sale / Purchase</a>
+    <a href="{{ url_for('recovery') }}" class="btn btn-secondary">+ New Receipt / Payment</a>
+    <a href="{{ url_for('parties') }}" class="btn btn-secondary">+ New Party</a>
+    <a href="{{ url_for('report_receivable') }}" class="btn btn-secondary">View Receivable Ledger</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;">This company</h2>
+  <p style="color:var(--ink-soft);">{{ party_count }} parties &middot; {{ item_count }} items in stock master</p>
+</div>
+
+{% endblock %}

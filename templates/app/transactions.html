@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% block title %}Purchase &amp; Sale{% endblock %}
+{% block page_title %}Purchase &amp; Sale Entry{% endblock %}
+{% block content %}
+
+{% if saved_voucher %}
+<div class="saved-banner">
+  <span>✅ Saved as <strong>{{ saved_voucher.voucher }}</strong> — ready for your next entry.</span>
+  <a href="{{ url_for('print_voucher', transaction_id=saved_voucher.id) }}" target="_blank" class="btn btn-secondary btn-sm">Print This Voucher</a>
+</div>
+{% endif %}
+
+<div class="card card-accent">
+  <h2 style="margin-top:0;" id="stepHeading">New entry</h2>
+
+  <form method="post" id="txnForm">
+    <!-- ===== STEP 1: ENTRY ===== -->
+    <div id="step1" class="wizard-step">
+      <div class="form-row">
+        <div class="field">
+          <label>Type</label>
+          <select name="voucher_type" id="voucherType" onchange="onTypeChange()">
+            <option value="SALE">Sale</option>
+            <option value="PURCHASE">Purchase</option>
+          </select>
+        </div>
+        <div class="field"><label>Date</label><input type="date" name="date" value="{{ today }}" required></div>
+        <div class="field"><label>D.O. No.</label><input type="text" name="do_no" id="doNo" value="{{ suggested_do_sale }}"></div>
+        <div class="field">
+          <label>Broker</label>
+          <select name="broker_party_id" class="searchable">
+            <option value="">No broker</option>
+            {% for b in brokers %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Party*</label>
+          <select name="party_id" class="searchable" required>
+            <option value="">Select party…</option>
+            {% for p in parties %}<option value="{{ p.id }}">{{ p.name }} ({{ p.type }})</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>Item / Quality*</label>
+          <select name="quality_id" id="qualitySelect" class="searchable" onchange="onQualityChange()" required>
+            <option value="">Select item…</option>
+            {% for i in items %}<option value="{{ i.id }}" data-sale="{{ i.sale_rate }}">{{ i.name }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Qty*</label><input type="number" step="0.01" name="qty" id="qty" oninput="recalc()" required></div>
+        <div class="field"><label>Rate*</label><input type="number" step="0.01" name="rate" id="rate" oninput="recalc()" required></div>
+        <div class="field"><label>Amount</label><input type="text" id="amount" disabled></div>
+        <div class="field"><label>Credit Days</label><input type="number" name="credit_days" value="0"></div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Mode</label>
+          <select name="mode"><option>Cash</option><option>Cheque</option></select>
+        </div>
+        <div class="field"><label>Cheque No.</label><input type="text" name="cheque_no"></div>
+        <div class="field" style="flex:2;"><label>Description</label><input type="text" name="description"></div>
+      </div>
+
+      <div class="field" id="signatureToggleField" style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+        <input type="checkbox" id="wantSignature" style="width:auto;">
+        <label for="wantSignature" style="margin:0; cursor:pointer;">Get the receiver's signature before saving (Sale only)</label>
+      </div>
+
+      <button type="button" id="step1Button" class="btn btn-primary" onclick="onStep1Continue()">Save Entry</button>
+    </div>
+
+    <!-- ===== STEP 2: SIGNATURE ===== -->
+    <div id="step2" class="wizard-step" style="display:none;">
+      <p style="color:var(--ink-soft); font-size:13px; margin-top:-4px;">
+        Ask the receiver to sign below using a finger, stylus, mouse, or a connected signature pad.
+      </p>
+      <div style="border:1px solid var(--border); border-radius:8px; background:#fff; touch-action:none;">
+        <canvas id="sigCanvas" width="700" height="220" style="width:100%; height:220px; display:block; cursor:crosshair;"></canvas>
+      </div>
+      <input type="hidden" name="signature_data" id="signatureDataInput">
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button type="button" class="btn btn-secondary" onclick="clearSignature()">Clear</button>
+        <button type="button" class="btn btn-secondary" onclick="backToStep1()">← Back</button>
+        <button type="button" class="btn btn-primary" onclick="confirmSignatureAndSave()">Confirm &amp; Save</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+    <h2 style="margin:0;">{{ "Search results" if search_q else "Recent entries" }}</h2>
+    <form method="get" style="display:flex; gap:8px;">
+      <input type="text" name="q" value="{{ search_q or '' }}" placeholder="Find by invoice #, D.O. #, or Sr. #…" style="width:280px;">
+      <button type="submit" class="btn btn-secondary btn-sm">Search</button>
+      {% if search_q %}<a href="{{ url_for('transactions') }}" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
+    </form>
+  </div>
+  {% if search_q and not recent %}
+  <div class="empty-state"><div class="icon">🔍</div>No entries match "{{ search_q }}".</div>
+  {% elif recent %}
+  <table>
+    <thead><tr><th>Voucher #</th><th>Date</th><th>Type</th><th>D.O.#</th><th>Party</th><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th><th></th></tr></thead>
+    <tbody>
+      {% for t in recent %}
+      <tr>
+        <td>{{ t.voucher }}</td><td>{{ t.date }}</td><td>{{ t.type }}</td><td>{{ t.do_no or "—" }}</td>
+        <td>{{ t.party or "—" }}</td><td>{{ t.item or "—" }}</td>
+        <td class="num money">{{ "{:g}".format(t.qty) if t.qty else "—" }}</td>
+        <td class="num money">{{ "{:,.2f}".format(t.rate) if t.rate else "—" }}</td>
+        <td class="num money">{{ "{:,.2f}".format(t.amount) }}</td>
+        <td style="white-space:nowrap;">
+          <a href="{{ url_for('print_voucher', transaction_id=t.id) }}" target="_blank" class="btn btn-secondary btn-sm">Print</a>
+          {% if current_user.can_edit %}
+          <a href="{{ url_for('edit_transaction', transaction_id=t.id, return_to=request.full_path) }}" class="btn btn-secondary btn-sm">Edit</a>
+          {% endif %}
+          {% if current_user.role == 'admin' %}
+          <form method="post" action="{{ url_for('delete_transaction', transaction_id=t.id) }}" onsubmit="return confirm('Delete this entry?');" style="display:inline;">
+            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state"><div class="icon">🧾</div>No entries yet.</div>
+  {% endif %}
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  const suggestedDoSale = "{{ suggested_do_sale }}";
+  const suggestedDoPurchase = "{{ suggested_do_purchase }}";
+
+  function onTypeChange() {
+    const type = document.getElementById('voucherType').value;
+    document.getElementById('doNo').value = (type === 'SALE') ? suggestedDoSale : suggestedDoPurchase;
+    document.getElementById('signatureToggleField').style.display = (type === 'SALE') ? 'flex' : 'none';
+    if (type !== 'SALE') document.getElementById('wantSignature').checked = false;
+    onQualityChange();
+  }
+  function onQualityChange() {
+    const sel = document.getElementById('qualitySelect');
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    const type = document.getElementById('voucherType').value;
+    // Only Sale rate auto-fills from the item master - Purchase rate
+    // is no longer a master field, it's entered fresh each time and
+    // the item's purchase rate on file is just the resulting average.
+    if (type === 'SALE') {
+      document.getElementById('rate').value = opt.dataset.sale;
+      recalc();
+    }
+  }
+  function recalc() {
+    const qty = parseFloat(document.getElementById('qty').value) || 0;
+    const rate = parseFloat(document.getElementById('rate').value) || 0;
+    document.getElementById('amount').value = (qty * rate).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+  onTypeChange();
+
+  // ===== signature wizard =====
+  function onStep1Continue() {
+    const form = document.getElementById('txnForm');
+    if (!form.reportValidity()) return; // native validation on step-1 fields
+
+    if (document.getElementById('wantSignature').checked) {
+      goToStep(2);
+    } else {
+      form.submit();
+    }
+  }
+
+  function goToStep(n) {
+    const step1 = document.getElementById('step1');
+    const step2 = document.getElementById('step2');
+    const heading = document.getElementById('stepHeading');
+    const from = (n === 2) ? step1 : step2;
+    const to = (n === 2) ? step2 : step1;
+
+    from.style.transition = 'opacity 0.2s var(--ease), transform 0.2s var(--ease)';
+    from.style.opacity = '0';
+    from.style.transform = 'translateX(' + (n === 2 ? '-16px' : '16px') + ')';
+    setTimeout(function () {
+      from.style.display = 'none';
+      to.style.display = '';
+      to.style.opacity = '0';
+      to.style.transform = 'translateX(' + (n === 2 ? '16px' : '-16px') + ')';
+      heading.textContent = (n === 2) ? 'Receiver Signature' : 'New entry';
+      requestAnimationFrame(function () {
+        to.style.transition = 'opacity 0.25s var(--ease), transform 0.25s var(--ease)';
+        to.style.opacity = '1';
+        to.style.transform = 'translateX(0)';
+      });
+      if (n === 2) initSignaturePad();
+    }, 200);
+  }
+  function backToStep1() { goToStep(1); }
+
+  let sigCtx, sigDrawing = false, sigHasStroke = false;
+  function initSignaturePad() {
+    const canvas = document.getElementById('sigCanvas');
+    // match the canvas's internal resolution to its displayed size for a crisp line
+    const ratio = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * ratio;
+    canvas.height = rect.height * ratio;
+    sigCtx = canvas.getContext('2d');
+    sigCtx.scale(ratio, ratio);
+    sigCtx.lineWidth = 2;
+    sigCtx.lineCap = 'round';
+    sigCtx.strokeStyle = '#1c1c1f';
+    sigHasStroke = false;
+
+    function pos(e) {
+      const r = canvas.getBoundingClientRect();
+      const point = e.touches ? e.touches[0] : e;
+      return { x: point.clientX - r.left, y: point.clientY - r.top };
+    }
+    function start(e) {
+      e.preventDefault();
+      sigDrawing = true;
+      const p = pos(e);
+      sigCtx.beginPath();
+      sigCtx.moveTo(p.x, p.y);
+    }
+    function move(e) {
+      if (!sigDrawing) return;
+      e.preventDefault();
+      const p = pos(e);
+      sigCtx.lineTo(p.x, p.y);
+      sigCtx.stroke();
+      sigHasStroke = true;
+    }
+    function end() { sigDrawing = false; }
+
+    canvas.onmousedown = start; canvas.onmousemove = move;
+    window.onmouseup = end;
+    canvas.ontouchstart = start; canvas.ontouchmove = move; canvas.ontouchend = end;
+  }
+  function clearSignature() {
+    const canvas = document.getElementById('sigCanvas');
+    sigCtx.clearRect(0, 0, canvas.width, canvas.height);
+    sigHasStroke = false;
+  }
+  function confirmSignatureAndSave() {
+    if (!sigHasStroke) {
+      alert('Please capture a signature first, or go back and uncheck the signature option.');
+      return;
+    }
+    document.getElementById('signatureDataInput').value = document.getElementById('sigCanvas').toDataURL('image/png');
+    document.getElementById('txnForm').submit();
+  }
+</script>
+{% endblock %}

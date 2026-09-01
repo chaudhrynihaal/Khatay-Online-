@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Backup History{% endblock %}
+{% block page_title %}Backup History{% endblock %}
+{% block content %}
+
+{% if not available %}
+<div class="card">
+  <div class="empty-state">
+    <div class="icon">☁️</div>
+    Cloud backups aren't set up on this server yet. Ask your platform administrator to run the backup setup script.
+  </div>
+</div>
+{% elif error %}
+<div class="card">
+  <div class="empty-state">
+    <div class="icon">⚠️</div>
+    Couldn't reach cloud storage right now: {{ error }}
+  </div>
+</div>
+{% else %}
+
+<div class="card card-accent">
+  <p style="color:var(--ink-soft); font-size:13px;">
+    Every daily backup your company has ever had, kept permanently. You can restore your live data back to
+    any of these points — this is a serious action, so we'll ask you to confirm carefully, and we always
+    save a safety copy of what's live right now before making any change.
+  </p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;">Your backups ({{ backups|length }})</h2>
+  {% if backups %}
+  <table>
+    <thead><tr><th>Date</th><th class="num">Size</th><th></th></tr></thead>
+    <tbody>
+      {% for b in backups %}
+      <tr>
+        <td>{{ b.modified }}</td>
+        <td class="num money">{{ b.size_kb }} KB</td>
+        <td><button type="button" class="btn btn-danger btn-sm" onclick="openRestoreDialog('{{ b.name }}', '{{ b.modified }}')">Restore This</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state"><div class="icon">📦</div>No backups yet — the first one is taken the day after backups are set up.</div>
+  {% endif %}
+</div>
+
+<div id="restoreModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+  <div class="card" style="max-width:480px; margin:0;">
+    <h2 style="margin-top:0; color:var(--red);">⚠️ Confirm Restore</h2>
+    <p>You're about to replace <strong>all of your company's current data</strong> with the backup from:</p>
+    <p style="font-weight:700; font-size:16px;" id="restoreDate"></p>
+    <p style="color:var(--ink-soft); font-size:13px;">
+      Anything entered after that date will be lost from the live app (though it's safe if you ever need it —
+      today's data is saved separately before this runs). This cannot be undone from within the app.
+    </p>
+    <form method="post" action="{{ url_for('restore_backup') }}" id="restoreForm">
+      <input type="hidden" name="filename" id="restoreFilename">
+      <div class="field">
+        <label>Type RESTORE (all capitals) to confirm</label>
+        <input type="text" name="confirm_text" id="confirmText" autocomplete="off">
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button type="submit" class="btn btn-danger">Yes, Restore This Backup</button>
+        <button type="button" class="btn btn-secondary" onclick="closeRestoreDialog()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+  function openRestoreDialog(filename, modified) {
+    document.getElementById('restoreFilename').value = filename;
+    document.getElementById('restoreDate').textContent = modified;
+    document.getElementById('confirmText').value = '';
+    document.getElementById('restoreModal').style.display = 'flex';
+  }
+  function closeRestoreDialog() {
+    document.getElementById('restoreModal').style.display = 'none';
+  }
+</script>
+{% endblock %}

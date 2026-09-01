@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Ledger{% endblock %}
+{% block page_title %}Ledger{% endblock %}
+{% block content %}
+
+<div class="tabs no-print">
+  <a href="{{ url_for('hardware_ledger', type='Customer') }}" class="{{ 'active' if party_type == 'Customer' }}">Customers</a>
+  <a href="{{ url_for('hardware_ledger', type='Supplier') }}" class="{{ 'active' if party_type == 'Supplier' }}">Suppliers</a>
+</div>
+
+<form method="get" class="no-print" style="display:flex; gap:10px; align-items:end; margin-bottom:16px;">
+  <input type="hidden" name="type" value="{{ party_type }}">
+  <div class="field" style="margin-bottom:0; min-width:260px;">
+    <label>{{ "Customer" if party_type == "Customer" else "Supplier" }}</label>
+    <select name="party_id" onchange="this.form.submit()">
+      <option value="">Select a {{ "customer" if party_type == "Customer" else "supplier" }}…</option>
+      {% for p in parties %}
+      <option value="{{ p.id }}" {{ 'selected' if p.id == party_id }}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% if ledger %}
+  <button type="button" class="btn btn-secondary" onclick="window.print()">🖨 Print</button>
+  {% endif %}
+</form>
+
+{% if ledger %}
+{% set balance = ledger.closing_balance %}
+<div class="card" style="margin-bottom:14px;">
+  <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:16px; align-items:center;">
+    <div>
+      <strong style="font-size:16px;">{{ ledger.party.name }}</strong><br>
+      <span style="color:var(--ink-soft); font-size:13px;">{{ ledger.party.phone or "" }}</span>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:12px; color:var(--ink-soft);">Closing Balance</div>
+      <div class="money" style="font-size:20px; font-weight:700; color:{{ 'var(--red)' if balance > 0 else 'var(--ink)' }};">
+        Rs. {{ "{:,.2f}".format(balance|abs) }}
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border-soft); font-size:14px;">
+    {% if balance > 0 %}
+      {% if party_type == "Customer" %}
+        <strong>{{ ledger.party.name }} has to pay you Rs. {{ "{:,.2f}".format(balance) }}.</strong>
+      {% else %}
+        <strong>You have to pay {{ ledger.party.name }} Rs. {{ "{:,.2f}".format(balance) }}.</strong>
+      {% endif %}
+    {% elif balance < 0 %}
+      {% if party_type == "Customer" %}
+        <strong>{{ ledger.party.name }} has overpaid you by Rs. {{ "{:,.2f}".format(balance|abs) }}.</strong>
+      {% else %}
+        <strong>{{ ledger.party.name }} owes you a refund of Rs. {{ "{:,.2f}".format(balance|abs) }}.</strong>
+      {% endif %}
+    {% else %}
+      <strong>Settled — no balance due either way.</strong>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card no-print">
+  <h3 style="margin-top:0;">Record a {{ "payment received" if party_type == "Customer" else "payment made" }}</h3>
+  <form method="post" action="{{ url_for('hardware_ledger_payment') }}" class="form-row" style="align-items:flex-end;">
+    <input type="hidden" name="party_id" value="{{ party_id }}">
+    <div class="field"><label>Date</label><input type="date" name="date" value="{{ today }}" required></div>
+    <div class="field"><label>Amount*</label><input type="number" step="0.01" name="amount" required></div>
+    <div class="field" style="flex:2;"><label>Description</label><input type="text" name="description"></div>
+    <div class="field" style="flex:0;"><button type="submit" class="btn btn-primary">Record Payment</button></div>
+  </form>
+</div>
+
+<div class="t-account-grid">
+  <div class="card card-accent red">
+    <h3 style="margin-top:0;">{{ "Sales" if party_type == "Customer" else "Purchases" }} (Dr)</h3>
+    <table>
+      <thead><tr><th>Date</th><th>Detail</th><th class="num">Qty</th><th class="num">Amount</th><th class="no-print"></th></tr></thead>
+      <tbody>
+        <tr class="party-row"><td colspan="3">Opening Balance</td><td class="num money">{{ "{:,.2f}".format(ledger.party.opening_balance) }}</td><td class="no-print"></td></tr>
+        {% for e in ledger.entries if e.kind == "transaction" %}
+        <tr>
+          <td>{{ e.date }}</td><td>{{ e.detail or "—" }}</td>
+          <td class="num money">{{ "{:g}".format(e.qty) if e.qty else "—" }}</td>
+          <td class="num money">{{ "{:,.2f}".format(e.debit) }}</td>
+          <td class="no-print" style="white-space:nowrap;">
+            <a href="{{ url_for('hardware_ledger_transaction_edit', txn_id=e.id, return_to=request.full_path) }}" class="btn btn-secondary btn-sm">Edit</a>
+            <form method="post" action="{{ url_for('hardware_ledger_transaction_delete', txn_id=e.id) }}" onsubmit="return confirm('Delete this entry?');" style="display:inline;">
+              <button type="submit" class="btn btn-danger btn-sm">Del</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+        <tr class="party-row"><td colspan="3">TOTAL</td>
+          <td class="num money">{{ "{:,.2f}".format(ledger.party.opening_balance + ledger.entries|selectattr("kind","equalto","transaction")|sum(attribute="debit")) }}</td>
+          <td class="no-print"></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card card-accent green">
+    <h3 style="margin-top:0;">Payments &amp; Returns (Cr)</h3>
+    <table>
+      <thead><tr><th>Date</th><th>Type</th><th>Detail</th><th class="num">Amount</th><th class="no-print"></th></tr></thead>
+      <tbody>
+        {% for e in ledger.entries if e.kind in ("payment", "return") %}
+        <tr>
+          <td>{{ e.date }}</td><td>{{ e.type }}</td><td>{{ e.detail or "—" }}</td>
+          <td class="num money">{{ "{:,.2f}".format(e.credit) }}</td>
+          <td class="no-print" style="white-space:nowrap;">
+            {% if e.kind == "payment" %}
+            <a href="{{ url_for('hardware_ledger_payment_edit', payment_id=e.id, return_to=request.full_path) }}" class="btn btn-secondary btn-sm">Edit</a>
+            <form method="post" action="{{ url_for('hardware_ledger_payment_delete', payment_id=e.id) }}" onsubmit="return confirm('Delete this payment?');" style="display:inline;">
+              <button type="submit" class="btn btn-danger btn-sm">Del</button>
+            </form>
+            {% else %}
+            <a href="{{ url_for('hardware_ledger_transaction_edit', txn_id=e.id, return_to=request.full_path) }}" class="btn btn-secondary btn-sm">Edit</a>
+            <form method="post" action="{{ url_for('hardware_ledger_transaction_delete', txn_id=e.id) }}" onsubmit="return confirm('Delete this return?');" style="display:inline;">
+              <button type="submit" class="btn btn-danger btn-sm">Del</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        <tr class="party-row"><td colspan="3">TOTAL</td>
+          <td class="num money">{{ "{:,.2f}".format(ledger.entries|selectattr("kind","in",["payment","return"])|sum(attribute="credit")) }}</td>
+          <td class="no-print"></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% elif party_id %}
+<div class="empty-state">Party not found.</div>
+{% else %}
+<div class="empty-state"><div class="icon">📖</div>Select a {{ "customer" if party_type == "Customer" else "supplier" }} above to see their ledger — every credit entry and payment, in a Dr/Cr T-account, with the closing balance.</div>
+{% endif %}
+{% endblock %}

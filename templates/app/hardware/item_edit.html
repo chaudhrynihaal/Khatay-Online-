@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Edit Item{% endblock %}
+{% block page_title %}Edit Item{% endblock %}
+{% block content %}
+
+<datalist id="categoryList">
+  {% for c in categories %}<option value="{{ c }}">{% endfor %}
+</datalist>
+
+<div class="card card-accent">
+  <form method="post">
+    <div class="form-row">
+      <div class="field"><label>Name*</label><input type="text" name="name" value="{{ item.name }}" required></div>
+      {% set is_custom_unit = item.unit and item.unit not in standard_units %}
+      <div class="field">
+        <label>Unit</label>
+        <select name="unit" id="unitSelect" onchange="onUnitSelectChange()">
+          <option value="">Select unit…</option>
+          {% for u in standard_units %}<option value="{{ u }}" {{ 'selected' if item.unit == u }}>{{ u }}</option>{% endfor %}
+          <option value="__other__" {{ 'selected' if is_custom_unit }}>Other (type below)…</option>
+        </select>
+        <input type="text" name="unit_other" id="unitOtherInput" value="{{ item.unit if is_custom_unit else '' }}"
+               placeholder="Type a unit…" style="{{ '' if is_custom_unit else 'display:none;' }} margin-top:6px;">
+      </div>
+      <div class="field"><label>Category</label><input type="text" name="category" value="{{ item.category or '' }}" list="categoryList" placeholder="Hand Tools, Plumbing, Electrical…"></div>
+      <div class="field"><label>Barcode</label><input type="text" name="barcode" id="editItemBarcode" value="{{ item.barcode or '' }}" placeholder="Scan or type…" autocomplete="off"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Purchase Rate</label><input type="number" step="0.01" name="purchase_rate" value="{{ item.purchase_rate }}"></div>
+      <div class="field"><label>Sale Rate</label><input type="number" step="0.01" name="sale_rate" value="{{ item.sale_rate }}"></div>
+      <div class="field"><label>Stock Qty</label><input type="number" step="0.01" name="stock_qty" value="{{ item.stock_qty }}"></div>
+      <div class="field"><label>Reorder Level</label><input type="number" step="0.01" name="reorder_level" value="{{ item.reorder_level }}" placeholder="0 = no alert"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>Bulk Purchase Unit</label><input type="text" name="purchase_unit" value="{{ item.purchase_unit or '' }}" placeholder="box, carton, dozen…"></div>
+      <div class="field"><label>Units per Bulk Purchase Unit</label><input type="number" step="0.01" name="conversion_factor" value="{{ item.conversion_factor }}"></div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label>Variant Of (optional)</label>
+        <select name="parent_item_id">
+          <option value="">Not a variant — standalone item</option>
+          {% for p in parent_items %}<option value="{{ p.id }}" {{ 'selected' if item.parent_item_id == p.id }}>{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label>Variant Name</label><input type="text" name="variant_name" value="{{ item.variant_name or '' }}" placeholder="1 inch, Red, Large…"></div>
+    </div>
+    <p style="color:var(--ink-soft); font-size:12.5px;">Changing Stock Qty here overrides it directly — use this for stock-count corrections, not for recording a sale/purchase (those already adjust stock automatically).</p>
+    <button type="submit" class="btn btn-primary">Save Changes</button>
+    <a href="{{ url_for('hardware_inventory') }}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById('editItemBarcode').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') e.preventDefault();
+  });
+
+  function onUnitSelectChange() {
+    document.getElementById('unitOtherInput').style.display =
+      (document.getElementById('unitSelect').value === '__other__') ? '' : 'none';
+  }
+</script>
+{% endblock %}

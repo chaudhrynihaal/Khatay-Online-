@@ -1,0 +1,18 @@
+# deploy/Caddyfile
+#
+# Caddy sits in front of ULTRA ERP and handles HTTPS automatically -
+# it gets a free certificate from Let's Encrypt and renews it forever
+# with zero manual steps. Replace yourdomain.com below with your real
+# domain before running deploy/setup.sh.
+
+yourdomain.com {
+    reverse_proxy 127.0.0.1:8000
+    encode gzip
+
+    # sensible security headers
+    header {
+        Strict-Transport-Security "max-age=31536000;"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+    }
+}

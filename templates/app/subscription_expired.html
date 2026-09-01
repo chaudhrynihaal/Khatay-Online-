@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Subscription{% endblock %}
+{% block content_bare %}
+<div class="login-wrap">
+  <div class="login-card" style="text-align:center;">
+    <div class="brand"><span class="dot" style="background:var(--red);"></span></div>
+    <h1>Subscription {{ company.subscription_status }}</h1>
+    <p class="sub">{{ company.name }}'s access has ended. Contact your administrator to renew.</p>
+    <a href="{{ url_for('logout') }}" class="btn btn-secondary" style="width:100%; justify-content:center;">Sign out</a>
+  </div>
+</div>
+{% endblock %}

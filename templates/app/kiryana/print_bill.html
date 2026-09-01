@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ bill.invoice }}{% endblock %}
+{% block content_bare %}
+<div style="max-width:640px; margin:24px auto; padding:0 16px;">
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px;">
+      <div>
+        <div style="font-size:19px; font-weight:700;">{{ company_name }}</div>
+        {% set titles = {"SALE": "Sale Receipt", "PURCHASE": "Purchase Bill", "SALE_RETURN": "Sale Return", "PURCHASE_RETURN": "Purchase Return"} %}
+        <div style="color:var(--ink-soft); font-size:12.5px;">{{ titles.get(txn_type, txn_type) }}</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="money" style="font-weight:700;">{{ bill.invoice }}</div>
+        <div style="color:var(--ink-soft); font-size:12.5px;">{{ bill.date }}</div>
+      </div>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; margin-bottom:18px; font-size:13.5px;">
+      <div>
+        <strong>{{ "Customer" if txn_type in ("SALE", "SALE_RETURN") else "Supplier" }}:</strong>
+        {{ bill.party.name if bill.party else "Walk-in" }}
+        {% if bill.party and bill.party.phone %} · {{ bill.party.phone }}{% endif %}
+      </div>
+      <div><strong>Mode:</strong> {{ bill.mode }}</div>
+    </div>
+
+    <table>
+      <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+        {% for l in bill.lines %}
+        <tr>
+          <td>{{ l.item }}</td>
+          <td class="num money">{{ "{:g}".format(l.qty) }}</td>
+          <td class="num money">{{ "{:,.2f}".format(l.rate) }}</td>
+          <td class="num money">{{ "{:,.2f}".format(l.amount) }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="party-row"><td colspan="3">TOTAL</td><td class="num money">{{ "{:,.2f}".format(bill.total) }}</td></tr>
+      </tbody>
+    </table>
+
+    {% if bill.description %}
+    <p style="font-size:12.5px; color:var(--ink-soft); margin-top:14px;">{{ bill.description }}</p>
+    {% endif %}
+
+    <div class="no-print" style="margin-top:24px; display:flex; gap:10px;">
+      <button type="button" class="btn btn-primary" onclick="window.print()">🖨 Print</button>
+      <button type="button" class="btn btn-secondary" onclick="window.close()">Close</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>window.addEventListener('load', function () { window.print(); });</script>
+{% endblock %}

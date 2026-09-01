@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Capital &amp; Expense{% endblock %}
+{% block page_title %}Capital &amp; Expense Entry{% endblock %}
+{% block content %}
+
+{% if saved_voucher %}
+<div class="saved-banner">
+  <span>✅ Saved as <strong>{{ saved_voucher.voucher }}</strong> — ready for your next entry.</span>
+  <a href="{{ url_for('print_voucher', transaction_id=saved_voucher.id) }}" target="_blank" class="btn btn-secondary btn-sm">Print This Voucher</a>
+</div>
+{% endif %}
+
+<div class="tabs">
+  <a href="#expense" class="active" onclick="showTab('expense')" id="tab-expense">Home &amp; Office Expense</a>
+  <a href="#capital" onclick="showTab('capital')" id="tab-capital">Capital In / Out</a>
+</div>
+
+<div id="panel-expense">
+  <div class="card card-accent">
+    <h2 style="margin-top:0;">New expense voucher</h2>
+    <form method="post">
+      <input type="hidden" name="kind" value="expense">
+      <div class="form-row">
+        <div class="field"><label>Date</label><input type="date" name="date" value="{{ today }}" required></div>
+        <div class="field">
+          <label>Category</label>
+          <select name="category"><option>Home</option><option>Office</option><option>Zakat</option></select>
+        </div>
+        <div class="field"><label>Amount*</label><input type="number" step="0.01" name="amount" required></div>
+        <div class="field" style="flex:2;"><label>Description</label><input type="text" name="description"></div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save Expense</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0;">Recent expenses</h2>
+    {% if expenses %}
+    <table>
+      <thead><tr><th>Voucher #</th><th>Date</th><th>Category</th><th class="num">Amount</th><th>Description</th><th></th></tr></thead>
+      <tbody>
+        {% for e in expenses %}
+        <tr>
+          <td>{{ e.voucher }}</td><td>{{ e.date }}</td><td>{{ e.category }}</td>
+          <td class="num money">{{ "{:,.2f}".format(e.amount) }}</td><td>{{ e.description or "—" }}</td>
+          <td style="white-space:nowrap;">
+            <a href="{{ url_for('print_voucher', transaction_id=e.id) }}" target="_blank" class="btn btn-secondary btn-sm">Print</a>
+            {% if current_user.can_edit %}
+            <a href="{{ url_for('edit_transaction', transaction_id=e.id, return_to=request.full_path) }}" class="btn btn-secondary btn-sm">Edit</a>
+            {% endif %}
+            {% if current_user.role == 'admin' %}
+            <form method="post" action="{{ url_for('delete_transaction', transaction_id=e.id) }}" onsubmit="return confirm('Delete?');" style="display:inline;">
+              <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="empty-state">No expenses yet.</div>{% endif %}
+  </div>
+</div>
+
+<div id="panel-capital" style="display:none;">
+  <div class="card card-accent">
+    <h2 style="margin-top:0;">New capital entry</h2>
+    <form method="post">
+      <input type="hidden" name="kind" value="capital">
+      <div class="form-row">
+        <div class="field"><label>Date</label><input type="date" name="date" value="{{ today }}" required></div>
+        <div class="field">
+          <label>Direction</label>
+          <select name="direction"><option value="CAPITAL_IN">Capital Introduced (in)</option><option value="CAPITAL_OUT">Capital Withdrawn (out)</option></select>
+        </div>
+        <div class="field"><label>Amount*</label><input type="number" step="0.01" name="amount" required></div>
+        <div class="field" style="flex:2;"><label>Description</label><input type="text" name="description"></div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save Entry</button>
+    </form>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">Total In</div><div class="value money">Rs. {{ "{:,.0f}".format(capital.total_in) }}</div></div>
+    <div class="stat-card"><div class="label">Total Out</div><div class="value money">Rs. {{ "{:,.0f}".format(capital.total_out) }}</div></div>
+    <div class="stat-card"><div class="label">Net Capital</div><div class="value money">Rs. {{ "{:,.0f}".format(capital.net_capital) }}</div></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Capital history</h2>
+    {% if capital_entries %}
+    <table>
+      <thead><tr><th>Voucher #</th><th>Date</th><th>Direction</th><th class="num">Amount</th><th>Description</th><th></th></tr></thead>
+      <tbody>
+        {% for c in capital_entries %}
+        <tr>
+          <td>{{ c.voucher }}</td><td>{{ c.date }}</td><td>{{ c.direction }}</td>
+          <td class="num money">{{ "{:,.2f}".format(c.amount) }}</td><td>{{ c.description or "—" }}</td>
+          <td><a href="{{ url_for('print_voucher', transaction_id=c.id) }}" target="_blank" class="btn btn-secondary btn-sm">Print</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="empty-state">No capital entries yet.</div>{% endif %}
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  function showTab(name) {
+    document.getElementById('panel-expense').style.display = (name === 'expense') ? '' : 'none';
+    document.getElementById('panel-capital').style.display = (name === 'capital') ? '' : 'none';
+    document.getElementById('tab-expense').classList.toggle('active', name === 'expense');
+    document.getElementById('tab-capital').classList.toggle('active', name === 'capital');
+  }
+</script>
+{% endblock %}
