@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Something Went Wrong · Khatay Online</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      csrfToken: {{ csrf_token()|tojson }},
+      flashes: [],
+      homeUrl: {{ url_for('dashboard')|tojson }},
+      code: 500,
+      heading: "Something went wrong",
+      message: "An unexpected error happened on our end. It's been logged - try again in a moment, or head back and try a different way."
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/error-page.js') }}"></script>
+</body>
+</html>

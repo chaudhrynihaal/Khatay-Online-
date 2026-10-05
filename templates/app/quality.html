@@ -1,60 +1,20 @@
-{% extends "base.html" %}
-{% block title %}Quality / Items{% endblock %}
-{% block page_title %}Quality / Items{% endblock %}
-{% block content %}
-
-<div class="card card-accent">
-  <h2 style="margin-top:0;">Add an item</h2>
-  <p style="color:var(--ink-soft); font-size:13px; margin-top:-8px;">
-    There's no Purchase Rate field here anymore — it's now worked out automatically from your
-    actual Purchase entries (and deliveries against Purchase bookings), using the quantity-weighted
-    average of every purchase recorded for this item. That derived rate is what's used to value
-    stock in the Profit report.
-  </p>
-  <form method="post">
-    <div class="form-row">
-      <div class="field"><label>Name*</label><input type="text" name="name" required></div>
-      <div class="field"><label>City / Area</label><input type="text" name="city_area"></div>
-      <div class="field"><label>Sale Rate</label><input type="number" step="0.01" name="sale_rate" value="0"></div>
-      <div class="field"><label>Opening Stock Qty</label><input type="number" step="0.01" name="opening_balance" value="0"></div>
-    </div>
-    <button type="submit" class="btn btn-primary">Add Item</button>
-  </form>
-</div>
-
-<div class="card">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-    <h2 style="margin:0;">{{ "Search results" if search_q else "All items" }}</h2>
-    <form method="get" style="display:flex; gap:8px;">
-      <input type="text" name="q" value="{{ search_q or '' }}" placeholder="Search item, area…" style="width:240px;">
-      <button type="submit" class="btn btn-secondary btn-sm">Search</button>
-      {% if search_q %}<a href="{{ url_for('quality') }}" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
-    </form>
-  </div>
-  {% if search_q and not items %}
-  <div class="empty-state"><div class="icon">🔍</div>No items match "{{ search_q }}".</div>
-  {% elif items %}
-  <table>
-    <thead><tr><th>Item / Quality</th><th>Area</th><th class="num">Purch. Rate (avg, from purchases)</th><th class="num">Sale Rate</th><th class="num">Stock</th><th></th></tr></thead>
-    <tbody>
-      {% for i in items %}
-      <tr>
-        <td>{{ i.name }}</td>
-        <td>{{ i.area or "—" }}</td>
-        <td class="num money">{{ "{:,.2f}".format(i.purchase_rate or 0) if i.purchase_rate else "—" }}</td>
-        <td class="num money">{{ "{:,.2f}".format(i.sale_rate or 0) }}</td>
-        <td class="num money" style="{{ 'color:var(--red)' if i.stock < 0 }}">{{ "{:g}".format(i.stock) }}</td>
-        <td>
-          <form method="post" action="{{ url_for('delete_quality', item_id=i.id) }}" onsubmit="return confirm('Delete this item?');" style="display:inline;">
-            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state"><div class="icon">🧵</div>No items yet — add your first yarn quality above.</div>
-  {% endif %}
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Quality / Items · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      searchQ: {{ search_q|tojson }},
+      items: {{ items|tojson }},
+      editQualityUrlBase: {{ url_for('edit_quality', item_id=0)|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-quality.js') }}"></script>
+</body>
+</html>

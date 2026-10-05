@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Balance Sheet · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      bs: {{ bs|tojson }},
+      pdfUrl: {{ url_for('report_pdf', report_name='balance_sheet')|tojson }},
+      excelUrl: {{ url_for('report_excel', report_name='balance_sheet')|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-report-balance-sheet.js') }}"></script>
+</body>
+</html>

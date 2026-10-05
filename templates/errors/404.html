@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Page Not Found · Khatay Online</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      csrfToken: {{ csrf_token()|tojson }},
+      flashes: [],
+      homeUrl: {{ url_for('dashboard')|tojson }},
+      code: 404,
+      heading: "Page not found",
+      message: "The page you're looking for doesn't exist, or you may not have access to it."
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/error-page.js') }}"></script>
+</body>
+</html>

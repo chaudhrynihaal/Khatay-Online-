@@ -51,7 +51,7 @@ alert_failure() {
 import os, smtplib, ssl, sys
 from email.message import EmailMessage
 msg = EmailMessage()
-msg["Subject"] = "ULTRA ERP backup problem"
+msg["Subject"] = "Khatay Online backup problem"
 to_addr = os.environ.get("SMTP_FROM") or os.environ["SMTP_USERNAME"]
 msg["From"] = to_addr
 msg["To"] = to_addr

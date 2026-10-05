@@ -448,8 +448,10 @@ def generate_do_invoice_pdf(transaction_id, output_path=None):
     combined.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LINEAFTER", (0, 0), (0, 0), 0.75, colors.HexColor("#cccccc")),
-        ("LEFTPADDING", (1, 0), (1, 0), 8 * mm),
-        ("RIGHTPADDING", (0, 0), (0, 0), 0),
+        # split the divider gap evenly - see the identical fix/comment in
+        # _build_receipt_payment_pdf
+        ("LEFTPADDING", (1, 0), (1, 0), 4 * mm),
+        ("RIGHTPADDING", (0, 0), (0, 0), 4 * mm),
     ]))
 
     flow = [combined, Spacer(1, 4 * mm),
@@ -680,8 +682,12 @@ def _build_receipt_payment_pdf(t, cheques, doc_label, party_role, amount_word, o
     combined.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LINEAFTER", (0, 0), (0, 0), 0.75, colors.HexColor("#cccccc")),
-        ("LEFTPADDING", (1, 0), (1, 0), 8 * mm),
-        ("RIGHTPADDING", (0, 0), (0, 0), 0),
+        # split the divider gap evenly between both copies - giving it
+        # entirely to one side (as this used to) makes that copy's
+        # usable content area narrower than the other's, so despite
+        # equal colWidths the two halves don't actually look the same size
+        ("LEFTPADDING", (1, 0), (1, 0), 4 * mm),
+        ("RIGHTPADDING", (0, 0), (0, 0), 4 * mm),
     ]))
 
     flow = [combined, Spacer(1, 4 * mm),

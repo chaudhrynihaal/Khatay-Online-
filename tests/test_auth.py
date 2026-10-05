@@ -16,6 +16,34 @@ def test_login_success_and_failure(company):
         assert not sess.get("user_id")
 
 
+def test_login_goes_to_business_picker_until_a_business_is_chosen(company):
+    c = app_module.app.test_client()
+    r = c.post("/login", data={"username": "testadmin", "password": "testpass123"})
+    assert r.headers["Location"].endswith("/business")
+
+
+def test_choosing_a_business_persists_it_and_skips_the_picker_on_next_login(company):
+    c = app_module.app.test_client()
+    c.post("/login", data={"username": "testadmin", "password": "testpass123"})
+
+    r = c.get("/business/choose/kiryana")
+    assert r.headers["Location"].endswith("/kiryana")
+    assert master.get_company(company["id"])["business_type"] == "kiryana"
+
+    # a fresh login (fresh client/session) should now skip the picker
+    c2 = app_module.app.test_client()
+    r2 = c2.post("/login", data={"username": "testadmin", "password": "testpass123"})
+    assert r2.headers["Location"].endswith("/kiryana")
+
+
+def test_business_choose_rejects_an_unknown_business_type(company):
+    c = app_module.app.test_client()
+    c.post("/login", data={"username": "testadmin", "password": "testpass123"})
+    r = c.get("/business/choose/not-a-real-business", follow_redirects=True)
+    assert b"Unknown business type." in r.data
+    assert master.get_company(company["id"])["business_type"] is None
+
+
 def test_login_rate_limit_kicks_in(company):
     if app_module.limiter is None:
         return  # flask-limiter not installed in this environment

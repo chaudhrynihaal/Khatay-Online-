@@ -28,3 +28,8 @@ env/
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Deploy credentials / SSH keys - never commit
+khatay-deploy password.txt
+khatayonline
+khatayonline.pub

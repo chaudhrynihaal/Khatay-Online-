@@ -1,40 +1,23 @@
-{% extends "base.html" %}
-{% block title %}Profit &amp; Capital{% endblock %}
-{% block page_title %}Profit &amp; Capital{% endblock %}
-{% block content %}
-
-<form method="get" style="display:flex; gap:10px; align-items:end; margin-bottom:16px;">
-  <div class="field" style="margin-bottom:0;"><label>From</label><input type="date" name="from" value="{{ date_from }}"></div>
-  <div class="field" style="margin-bottom:0;"><label>To</label><input type="date" name="to" value="{{ date_to }}"></div>
-  <button type="submit" class="btn btn-secondary">Refresh</button>
-  <a href="{{ url_for('report_pdf', report_name='profit', **{'from': date_from, 'to': date_to}) }}" target="_blank" class="btn btn-primary">Print / Save PDF</a>
-  <a href="{{ url_for('report_excel', report_name='profit', **{'from': date_from, 'to': date_to}) }}" class="btn btn-secondary">Export to Excel</a>
-</form>
-
-<div class="card">
-  <h2 style="margin-top:0;">Profit for the period</h2>
-  <table>
-    <tbody>
-      <tr><td>Total Sales</td><td class="num money">{{ "{:,.2f}".format(profit.total_sales) }}</td></tr>
-      <tr><td>Total Purchases</td><td class="num money">{{ "{:,.2f}".format(profit.total_purchases) }}</td></tr>
-      <tr><td>+ Opening Stock Value (at purchase rate)</td><td class="num money">{{ "{:,.2f}".format(profit.opening_stock_value) }}</td></tr>
-      <tr><td>− Closing Stock Value (at purchase rate)</td><td class="num money">{{ "{:,.2f}".format(profit.closing_stock_value) }}</td></tr>
-      <tr><td>Cost of Goods Sold</td><td class="num money">{{ "{:,.2f}".format(profit.cogs) }}</td></tr>
-      <tr class="party-row"><td>Gross Profit (Sales − COGS)</td><td class="num money">{{ "{:,.2f}".format(profit.gross_profit) }}</td></tr>
-      <tr><td>Home Expense</td><td class="num money">{{ "{:,.2f}".format(profit.home_expense) }}</td></tr>
-      <tr><td>Office Expense</td><td class="num money">{{ "{:,.2f}".format(profit.office_expense) }}</td></tr>
-      <tr><td>Zakat</td><td class="num money">{{ "{:,.2f}".format(profit.zakat_expense) }}</td></tr>
-      <tr class="party-row"><td style="font-size:15px;">Net Profit</td><td class="num money" style="font-size:15px;">{{ "{:,.2f}".format(profit.net_profit) }}</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<div class="card">
-  <h2 style="margin-top:0;">Capital Account (all-time)</h2>
-  <div class="stat-grid">
-    <div class="stat-card"><div class="label">Total Introduced</div><div class="value money">Rs. {{ "{:,.0f}".format(capital.total_in) }}</div></div>
-    <div class="stat-card"><div class="label">Total Withdrawn</div><div class="value money">Rs. {{ "{:,.0f}".format(capital.total_out) }}</div></div>
-    <div class="stat-card"><div class="label">Net Capital</div><div class="value money">Rs. {{ "{:,.0f}".format(capital.net_capital) }}</div></div>
-  </div>
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Profit &amp; Capital · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      dateFrom: {{ date_from|tojson }},
+      dateTo: {{ date_to|tojson }},
+      profit: {{ profit|tojson }},
+      capital: {{ {"total_in": capital.total_in, "total_out": capital.total_out, "net_capital": capital.net_capital}|tojson }},
+      pdfUrl: {{ url_for('report_pdf', report_name='profit')|tojson }},
+      excelUrl: {{ url_for('report_excel', report_name='profit')|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-report-profit.js') }}"></script>
+</body>
+</html>

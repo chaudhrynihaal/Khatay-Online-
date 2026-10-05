@@ -1,0 +1,8 @@
+{# Minimal window.__PAGE__ fields for pre-auth screens (Login, Forgot
+   Password, Reset Password) - these render before g.user/g.company
+   exist, so unlike _v2_page_data.html this never touches current_user
+   or company_name. Include inside the object literal, same as
+   _v2_page_data.html. #}
+csrfToken: {{ csrf_token()|tojson }},
+flashes: {{ get_flashed_messages(with_categories=true)|tojson }},
+loginUrl: {{ url_for('login')|tojson }},

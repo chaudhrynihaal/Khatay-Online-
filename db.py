@@ -506,6 +506,66 @@ def get_brokerage_report(broker_party_id=None, date_from=None, date_to=None):
     return results
 
 
+def get_brokerage_paid(broker_party_id):
+    """All-time total actually paid to this broker - see
+    record_brokerage_payment(). Brokerage stays its own isolated system
+    (never touches the Payable Ledger, Cash Book, or Trial Balance/
+    Balance Sheet, same as the amount owed itself never has) - this is
+    purely for the Brokerage report to show Owed / Paid / Balance."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT SUM(amount) FROM transactions WHERE voucher_type = 'BROKERAGE' AND party_id = ?",
+                (broker_party_id,))
+    total = cur.fetchone()[0] or 0.0
+    conn.close()
+    return total
+
+
+def record_brokerage_payment(broker_party_id, date_, amount, description=""):
+    conn = get_connection()
+    cur = conn.cursor()
+    voucher_no = get_next_voucher_no("BROKERAGE", conn)
+    cur.execute(
+        """INSERT INTO transactions (date, voucher_type, voucher_no, party_id, amount, description, created_at)
+           VALUES (?,?,?,?,?,?,?)""",
+        (date_, "BROKERAGE", voucher_no, broker_party_id, amount, description, now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    return voucher_no
+
+
+def get_brokerage_summary(broker_party_id=None):
+    """One row per broker: total owed (calculated from Sale/Purchase
+    entries), total paid (see record_brokerage_payment), and the
+    balance still outstanding."""
+    conn = get_connection()
+    cur = conn.cursor()
+    query = "SELECT id, name FROM parties WHERE party_type = 'Broker'"
+    params = []
+    if broker_party_id:
+        query += " AND id = ?"
+        params.append(broker_party_id)
+    query += " ORDER BY name"
+    cur.execute(query, params)
+    brokers = cur.fetchall()
+    conn.close()
+
+    detail_rows = get_brokerage_report(broker_party_id=broker_party_id)
+    owed_by_broker = {}
+    for r in detail_rows:
+        owed_by_broker[r["broker_party_id"]] = owed_by_broker.get(r["broker_party_id"], 0.0) + r["brokerage"]
+
+    results = []
+    for bid, name in brokers:
+        owed = owed_by_broker.get(bid, 0.0)
+        paid = get_brokerage_paid(bid)
+        if owed == 0 and paid == 0:
+            continue
+        results.append({"broker_id": bid, "broker_name": name, "owed": owed, "paid": paid, "balance": owed - paid})
+    return results
+
+
 def get_stock_qty(quality_id):
     """opening_balance (qty) + SUM(PURCHASE qty) - SUM(SALE qty)"""
     conn = get_connection()
@@ -555,19 +615,25 @@ def get_stock_qty_as_of(quality_id, as_of_date, conn=None):
 
 
 def get_weighted_avg_purchase_rate(quality_id, as_of_date=None, conn=None):
-    """The item's purchase rate is no longer manually maintained on
-    the item master - it's derived from actual PURCHASE transactions
-    (which includes purchases that came from a delivered booking,
-    since delivering a booking creates a normal PURCHASE transaction).
-    Uses the quantity-weighted average rate of every purchase up to
-    as_of_date, which is standard practice for valuing mixed-cost
-    stock. Returns 0 if the item has never actually been purchased
-    (e.g. only ever entered as opening stock with no purchase history
-    to derive a rate from)."""
+    """The item's purchase rate is mostly derived from actual PURCHASE
+    transactions (which includes purchases that came from a delivered
+    booking, since delivering a booking creates a normal PURCHASE
+    transaction) - quantity-weighted average, standard practice for
+    valuing mixed-cost stock. The opening stock quantity is blended in
+    too, but ONLY when it was given a Purchase Rate at add/edit time
+    (quality.purchase_rate > 0) - opening stock entered before that
+    field existed defaults to 0 and is deliberately left out of the
+    blend rather than dragging the average down toward a rate nobody
+    actually set. Returns 0 if there's nothing to derive a rate from at
+    all (no real purchases, and no priced opening stock)."""
     owns_conn = conn is None
     if owns_conn:
         conn = get_connection()
     cur = conn.cursor()
+    cur.execute("SELECT opening_balance, purchase_rate FROM quality WHERE id = ?", (quality_id,))
+    row = cur.fetchone()
+    opening_qty, opening_rate = (row[0] or 0.0, row[1] or 0.0) if row else (0.0, 0.0)
+
     query = "SELECT qty, rate FROM transactions WHERE quality_id = ? AND voucher_type = 'PURCHASE'"
     params = [quality_id]
     if as_of_date:
@@ -577,10 +643,14 @@ def get_weighted_avg_purchase_rate(quality_id, as_of_date=None, conn=None):
     rows = cur.fetchall()
     if owns_conn:
         conn.close()
+
     total_qty = sum((r[0] or 0) for r in rows)
+    total_cost = sum((r[0] or 0) * (r[1] or 0) for r in rows)
+    if opening_qty > 0 and opening_rate > 0:
+        total_qty += opening_qty
+        total_cost += opening_qty * opening_rate
     if total_qty <= 1e-9:
         return 0.0
-    total_cost = sum((r[0] or 0) * (r[1] or 0) for r in rows)
     return total_cost / total_qty
 
 
@@ -600,6 +670,85 @@ def get_stock_value_as_of(as_of_date):
         total += qty * rate
     conn.close()
     return total
+
+
+# ---------------------------------------------------------------------
+# Purchase/Sale ledger - three views of the same Purchase/Sale history,
+# grouped by item instead of by party. "Overall" (get_quality_ledger) is
+# one item's full chronological history with a running quantity
+# balance, same idea as the Party Ledger. "By count" and "By rate"
+# (get_quality_ledger_summary) are the same one-row-per-item rollup,
+# just showing different columns from it - quantity totals for
+# spotting your biggest-volume items, or rate min/avg/max for spotting
+# your most price-variable ones.
+# ---------------------------------------------------------------------
+def get_quality_ledger(quality_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, city_area, sale_rate, opening_balance FROM quality WHERE id = ?", (quality_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+    item = {"id": row[0], "name": row[1], "area": row[2], "sale_rate": row[3], "opening_balance": row[4] or 0.0}
+
+    cur.execute(
+        """SELECT t.id, t.date, t.voucher_type, t.voucher_no, p.name, t.qty, t.rate, t.amount, t.do_no
+           FROM transactions t LEFT JOIN parties p ON p.id = t.party_id
+           WHERE t.quality_id = ? AND t.voucher_type IN ('SALE', 'PURCHASE')
+           ORDER BY t.date, t.id""",
+        (quality_id,),
+    )
+    txns = cur.fetchall()
+    conn.close()
+
+    balance = item["opening_balance"]
+    rows = []
+    for tid, tdate, vtype, vno, pname, qty, rate, amount, do_no in txns:
+        qty = qty or 0.0
+        balance += qty if vtype == "PURCHASE" else -qty
+        rows.append({
+            "id": tid, "date": tdate, "voucher_type": vtype,
+            "voucher_display": format_voucher_no(vtype, vno), "do_no": do_no,
+            "party_name": pname, "qty": qty, "rate": rate, "amount": amount, "balance": balance,
+        })
+    return {"item": item, "rows": rows, "closing_balance": balance}
+
+
+def get_quality_ledger_summary():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, city_area FROM quality ORDER BY name")
+    items = cur.fetchall()
+
+    cur.execute(
+        "SELECT quality_id, voucher_type, SUM(qty), MIN(rate), AVG(rate), MAX(rate) "
+        "FROM transactions WHERE voucher_type IN ('SALE', 'PURCHASE') AND quality_id IS NOT NULL "
+        "GROUP BY quality_id, voucher_type"
+    )
+    agg = {}
+    for qid, vtype, sum_qty, min_rate, avg_rate, max_rate in cur.fetchall():
+        agg.setdefault(qid, {})[vtype] = {
+            "qty": sum_qty or 0.0, "min_rate": min_rate or 0.0,
+            "avg_rate": avg_rate or 0.0, "max_rate": max_rate or 0.0,
+        }
+    conn.close()
+
+    empty = {"qty": 0.0, "min_rate": 0.0, "avg_rate": 0.0, "max_rate": 0.0}
+    results = []
+    for qid, name, area in items:
+        a = agg.get(qid, {})
+        purchase = a.get("PURCHASE", empty)
+        sale = a.get("SALE", empty)
+        if purchase["qty"] == 0 and sale["qty"] == 0:
+            continue
+        results.append({
+            "id": qid, "name": name, "area": area,
+            "purchased_qty": purchase["qty"], "sold_qty": sale["qty"], "net_qty": purchase["qty"] - sale["qty"],
+            "purchase_rate_min": purchase["min_rate"], "purchase_rate_avg": purchase["avg_rate"], "purchase_rate_max": purchase["max_rate"],
+            "sale_rate_min": sale["min_rate"], "sale_rate_avg": sale["avg_rate"], "sale_rate_max": sale["max_rate"],
+        })
+    return results
 
 
 def suggest_next_do_no(voucher_type="SALE"):
@@ -805,13 +954,13 @@ def _fifo_aging(invoice_voucher_type, settling_voucher_type, as_of_date=None):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, name, opening_balance, created_at FROM parties "
+        "SELECT id, name, opening_balance, created_at, phone FROM parties "
         "WHERE is_gl = 0 AND party_type NOT IN ('Expense', 'Bank') ORDER BY name"
     )
     parties = cur.fetchall()
 
     results = []
-    for party_id, party_name, opening_balance, created_at in parties:
+    for party_id, party_name, opening_balance, created_at, party_phone in parties:
         cur.execute(
             """SELECT id, voucher_no, date, voucher_type, do_no, quality_id, qty, rate, amount, credit_days
                FROM transactions
@@ -902,7 +1051,7 @@ def _fifo_aging(invoice_voucher_type, settling_voucher_type, as_of_date=None):
             due_date, status, days, is_overdue = compute_due_status(inv["date"], inv["credit_days"], as_of_date)
             item_display = item_names.get(inv["quality_id"], "-") if inv["quality_id"] else (inv.get("opening_item_name") or "-")
             results.append({
-                "party_id": party_id, "party_name": party_name,
+                "party_id": party_id, "party_name": party_name, "party_phone": party_phone,
                 "voucher_no": inv["voucher_no"], "voucher_display": voucher_str_no,
                 "date": inv["date"], "do_no": inv["do_no"],
                 "item_name": item_display,
@@ -934,12 +1083,17 @@ def get_payable_aging(as_of_date=None):
 
 # ---------------------------------------------------------------------
 # Cash position - used by the Cash Book's opening/closing balance.
-# Cash actually moves on RECEIPT, PAYMENT, EXPENSE, and CAPITAL_IN /
-# CAPITAL_OUT (Sale/Purchase on their own are just invoices - the cash
-# only moves when a Receipt or Payment is later recorded against them).
+# Cash actually moves on RECEIPT, PAYMENT, EXPENSE, CAPITAL_IN /
+# CAPITAL_OUT, and CONTRA_DR / CONTRA_CR (Sale/Purchase on their own are
+# just invoices - the cash only moves when a Receipt or Payment is later
+# recorded against them). Contra entries are treated as real cash
+# movement here (e.g. "Cash to Bank") - every contra entry balances
+# Dr == Cr across its own legs by construction, so including them never
+# changes the ALL-TIME closing balance, only which period an in-range
+# movement is counted in and whether it's visible in the Cash Book at all.
 # ---------------------------------------------------------------------
-CASH_IN_TYPES = ("RECEIPT", "CAPITAL_IN")
-CASH_OUT_TYPES = ("PAYMENT", "EXPENSE", "CAPITAL_OUT")
+CASH_IN_TYPES = ("RECEIPT", "CAPITAL_IN", "CONTRA_CR")
+CASH_OUT_TYPES = ("PAYMENT", "EXPENSE", "CAPITAL_OUT", "CONTRA_DR")
 
 
 def get_cash_movement(date_from=None, date_to=None):
@@ -947,8 +1101,9 @@ def get_cash_movement(date_from=None, date_to=None):
     date_from and date_to inclusive. Pass None for an open-ended side."""
     conn = get_connection()
     cur = conn.cursor()
-    query = "SELECT voucher_type, SUM(amount) FROM transactions WHERE voucher_type IN (?,?,?,?,?)"
-    params = list(CASH_IN_TYPES) + list(CASH_OUT_TYPES)
+    all_types = list(CASH_IN_TYPES) + list(CASH_OUT_TYPES)
+    query = f"SELECT voucher_type, SUM(amount) FROM transactions WHERE voucher_type IN ({','.join('?' * len(all_types))})"
+    params = list(all_types)
     if date_from is not None:
         query += " AND date >= ?"
         params.append(date_from)
@@ -1007,7 +1162,7 @@ def get_cash_taccount(date_from, date_to):
     cur.execute(
         """SELECT t.id, t.voucher_type, t.voucher_no, t.date, p.name, t.amount, t.description
            FROM transactions t LEFT JOIN parties p ON p.id = t.party_id
-           WHERE t.voucher_type IN ('RECEIPT','PAYMENT','EXPENSE','CAPITAL_IN','CAPITAL_OUT')
+           WHERE t.voucher_type IN ('RECEIPT','PAYMENT','EXPENSE','CAPITAL_IN','CAPITAL_OUT','CONTRA_DR','CONTRA_CR')
              AND t.date BETWEEN ? AND ?
            ORDER BY t.date, t.id""",
         (date_from, date_to),
@@ -1100,7 +1255,11 @@ def get_profit_summary(date_from, date_to):
     home_expense = expense_sums.get(home_id, 0.0)
     office_expense = expense_sums.get(office_id, 0.0)
     zakat_expense = expense_sums.get(zakat_id, 0.0)
-    net_profit = gross_profit - home_expense - office_expense - zakat_expense
+    # Zakat is a personal draw against capital, not a business cost - it
+    # does NOT reduce trading profit (see get_capital_summary, where it
+    # reduces the Capital Account balance directly instead). Still
+    # returned here for reference/display.
+    net_profit = gross_profit - home_expense - office_expense
 
     return {
         "total_sales": total_sales, "total_purchases": total_purchases,
@@ -1113,10 +1272,15 @@ def get_profit_summary(date_from, date_to):
 def get_capital_summary(date_from=None, date_to=None):
     """Capital introduced vs withdrawn by the owner, and the running
     capital account balance (all-time, regardless of date filter - the
-    date filter only limits which entries are listed)."""
+    date filter only limits which entries are listed). Zakat (paid from
+    the Zakat GL party, tracked separately - see get_gl_party_id) is a
+    personal draw against capital, not a business expense, so its
+    all-time total reduces net_capital directly here rather than
+    reducing Net Profit (see get_profit_summary)."""
     conn = get_connection()
     cur = conn.cursor()
     capital_id = get_gl_party_id(GL_CAPITAL, conn)
+    zakat_id = get_gl_party_id(GL_ZAKAT, conn)
 
     query = "SELECT id, voucher_no, date, voucher_type, amount, description FROM transactions WHERE party_id = ?"
     params = [capital_id]
@@ -1132,14 +1296,188 @@ def get_capital_summary(date_from=None, date_to=None):
         (capital_id,),
     )
     sums = {r[0]: (r[1] or 0.0) for r in cur.fetchall()}
+    cur.execute("SELECT SUM(amount) FROM transactions WHERE party_id = ? AND voucher_type = 'EXPENSE'", (zakat_id,))
+    zakat_total = cur.fetchone()[0] or 0.0
     conn.close()
 
     total_in = sums.get("CAPITAL_IN", 0.0)
-    total_out = sums.get("CAPITAL_OUT", 0.0)
+    total_out = sums.get("CAPITAL_OUT", 0.0) + zakat_total
     return {
         "entries": rows, "total_in": total_in, "total_out": total_out,
-        "net_capital": total_in - total_out,
+        "zakat_total": zakat_total, "net_capital": total_in - total_out,
     }
+
+
+# ---------------------------------------------------------------------
+# Balance sheet - Assets = Liabilities + Equity, as of a given date
+# (defaults to today). Reuses the same building blocks the Trial
+# Balance and Profit & Capital reports already use and that are already
+# covered by their own tests - get_party_balance for each party's AR/AP
+# position, get_profit_summary (called across ALL of history) for the
+# stock-adjusted Retained Earnings figure and today's Closing Stock
+# Value, get_capital_summary for the Capital Account, get_cash_movement
+# for the Cash position - so nothing here is calculated a fourth
+# different way that could quietly drift out of sync with those.
+#
+# Same idea as the Trial Balance's Opening Balance Equity plug, extended
+# to cover the one more starting point a balance sheet actually needs:
+# each item's PRICED opening stock (quality.purchase_rate - see
+# get_weighted_avg_purchase_rate) is inventory that existed before this
+# system started tracking it, with no recorded transaction behind it -
+# exactly like an opening party balance or the manually-set opening
+# cash figure, it needs its own equity plug or Assets won't equal
+# Liabilities + Equity once Closing Stock Value is included as an asset.
+# ---------------------------------------------------------------------
+def get_balance_sheet(as_of_date=None):
+    if as_of_date is None:
+        as_of_date = date.today().isoformat()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM parties WHERE is_gl = 0")
+    party_rows = cur.fetchall()
+    cur.execute("SELECT COALESCE(SUM(opening_balance), 0) FROM parties WHERE is_gl = 0")
+    total_party_opening = cur.fetchone()[0] or 0.0
+    cur.execute("SELECT COALESCE(SUM(opening_balance * purchase_rate), 0) FROM quality "
+                "WHERE opening_balance > 0 AND purchase_rate > 0")
+    opening_stock_equity = cur.fetchone()[0] or 0.0
+    conn.close()
+
+    receivables, payables = [], []
+    for party_id, name in party_rows:
+        balance = get_party_balance(party_id)
+        if balance > 1e-9:
+            receivables.append({"name": name, "amount": balance})
+        elif balance < -1e-9:
+            payables.append({"name": name, "amount": -balance})
+    receivables.sort(key=lambda r: -r["amount"])
+    payables.sort(key=lambda p: -p["amount"])
+
+    opening_cash, opening_cash_date = 0.0, None
+    try:
+        import settings as _settings
+        opening_cash, opening_cash_date = _settings.get_opening_cash_balance()
+    except Exception:
+        pass
+    opening_cash = opening_cash or 0.0
+    cash_balance = opening_cash + get_cash_movement(date_from=opening_cash_date, date_to=as_of_date)
+
+    stock_value = get_stock_value_as_of(as_of_date)
+    # "since inception" sentinel for get_profit_summary's date_from - far
+    # enough back that no real business predates it, but not so early
+    # that _day_before()'s date arithmetic underflows Python's date range
+    profit = get_profit_summary("1901-01-01", as_of_date)
+    capital = get_capital_summary()
+
+    total_assets = cash_balance + sum(r["amount"] for r in receivables) + stock_value
+    total_liabilities = sum(p["amount"] for p in payables)
+    opening_balance_equity = total_party_opening + opening_cash + opening_stock_equity
+    total_equity = capital["net_capital"] + opening_balance_equity + profit["net_profit"]
+
+    return {
+        "as_of_date": as_of_date,
+        "cash_balance": cash_balance,
+        "receivables": receivables,
+        "stock_value": stock_value,
+        "total_assets": total_assets,
+        "payables": payables,
+        "total_liabilities": total_liabilities,
+        "capital": capital["net_capital"],
+        "opening_balance_equity": opening_balance_equity,
+        "retained_earnings": profit["net_profit"],
+        "total_equity": total_equity,
+        "total_liabilities_and_equity": total_liabilities + total_equity,
+    }
+
+
+# ---------------------------------------------------------------------
+# Trial balance - a REAL one: every account shown once, its net balance
+# in whichever column (Debit/Credit) matches its sign, and the two
+# columns always foot to the same total. That last part isn't optional
+# for something calling itself a trial balance, so it's worth spelling
+# out why this needs more than "sum up what's in the parties table":
+#
+# Every party row (customer/supplier/Bank/Expense-type, plus the
+# hardcoded GL rows - Home/Office Expense, Zakat, Capital Account) only
+# ever records ONE side of a transaction. A Sale debits the customer,
+# but nothing anywhere records the matching credit to a "Sales" account;
+# a Receipt credits the customer, but nothing records the matching debit
+# to "Cash". Add up only the party sides and the two columns will never
+# balance - not a bug in the arithmetic, just half the ledger missing.
+#
+# So this function adds the three counter-accounts this app never
+# stores as rows - Sales, Purchases, Cash (derived exactly like the Cash
+# Book's own balance - see get_cash_movement/get_cash_opening_balance) -
+# plus one more: every party's opening_balance (and the manually-set
+# opening cash figure) is itself a starting number with no recorded
+# origin, so it needs its own counter-entry too, same as any other
+# opening balance in a real set of books. That's "Opening Balance
+# Equity" below. With all four included, the columns are guaranteed to
+# foot to the same total (each of Sale/Purchase/Receipt/Payment/opening/
+# opening-cash appears exactly once as a debit somewhere and once as a
+# credit somewhere else, across the whole set of rows).
+# ---------------------------------------------------------------------
+def get_trial_balance():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, opening_balance FROM parties ORDER BY name")
+    party_rows = cur.fetchall()
+
+    cur.execute("SELECT party_id, voucher_type, SUM(amount) FROM transactions GROUP BY party_id, voucher_type")
+    per_party_sums = {}
+    for party_id, v_type, total in cur.fetchall():
+        per_party_sums.setdefault(party_id, {})[v_type] = total or 0.0
+
+    cur.execute("SELECT voucher_type, SUM(amount) FROM transactions GROUP BY voucher_type")
+    global_sums = {r[0]: (r[1] or 0.0) for r in cur.fetchall()}
+    conn.close()
+
+    rows = []
+    total_debit = total_credit = 0.0
+
+    def add_row(name, debit, credit):
+        nonlocal total_debit, total_credit
+        if abs(debit) < 0.005 and abs(credit) < 0.005:
+            return
+        total_debit += debit
+        total_credit += credit
+        rows.append({"name": name, "debit": debit, "credit": credit, "balance": debit - credit})
+
+    total_opening = 0.0
+    for party_id, name, opening_balance in party_rows:
+        opening_balance = opening_balance or 0.0
+        total_opening += opening_balance
+        sums = per_party_sums.get(party_id, {})
+        # CONTRA_DR/EXPENSE/CAPITAL_OUT sit on the debit side (same
+        # direction as Sale/Payment against whichever party they landed
+        # on); CONTRA_CR/CAPITAL_IN sit on the credit side. For an
+        # ordinary customer/supplier these are all just 0.
+        debit = (max(opening_balance, 0)
+                 + sums.get("SALE", 0.0) + sums.get("PAYMENT", 0.0)
+                 + sums.get("CONTRA_DR", 0.0) + sums.get("EXPENSE", 0.0) + sums.get("CAPITAL_OUT", 0.0))
+        credit = (max(-opening_balance, 0)
+                  + sums.get("PURCHASE", 0.0) + sums.get("RECEIPT", 0.0)
+                  + sums.get("CONTRA_CR", 0.0) + sums.get("CAPITAL_IN", 0.0))
+        add_row(name, debit, credit)
+
+    # --- the missing counter-accounts (see docstring-style comment above) ---
+    add_row("Sales Account", 0.0, global_sums.get("SALE", 0.0))
+    add_row("Purchase Account", global_sums.get("PURCHASE", 0.0), 0.0)
+
+    opening_cash, opening_cash_date = 0.0, None
+    try:
+        import settings as _settings
+        opening_cash, opening_cash_date = _settings.get_opening_cash_balance()
+    except Exception:
+        pass
+    opening_cash = opening_cash or 0.0
+    cash_balance = opening_cash + get_cash_movement(date_from=opening_cash_date, date_to=None)
+    add_row("Cash Account", max(cash_balance, 0), max(-cash_balance, 0))
+
+    opening_equity = total_opening + opening_cash
+    add_row("Opening Balance Equity", max(-opening_equity, 0), max(opening_equity, 0))
+
+    return rows, total_debit, total_credit
 
 
 # ---------------------------------------------------------------------

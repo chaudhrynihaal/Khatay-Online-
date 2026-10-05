@@ -1,35 +1,20 @@
-{% extends "base.html" %}
-{% block title %}Choose Business{% endblock %}
-{% block content_bare %}
-<div class="business-select-wrap">
-  <div class="business-select-head">
-    <div class="brand" style="justify-content:center;"><span class="dot"></span> {{ company_name }}</div>
-    <h1>What do you deal in?</h1>
-    <p class="sub">Pick a business type to open its tools.</p>
-  </div>
-  <div class="business-grid">
-    <a href="{{ url_for('dashboard') }}" class="business-card">
-      <div class="icon">🧵</div>
-      <div class="name">Yarn</div>
-    </a>
-    <a href="{{ url_for('kiryana_dashboard') }}" class="business-card">
-      <div class="icon">🌾</div>
-      <div class="name">Kiryana</div>
-    </a>
-    <a href="{{ url_for('hardware_dashboard') }}" class="business-card">
-      <div class="icon">🔩</div>
-      <div class="name">Hardware</div>
-    </a>
-    <div class="business-card disabled">
-      <div class="icon">🧶</div>
-      <div class="name">Fabric</div>
-      <div class="soon">Coming soon</div>
-    </div>
-    <div class="business-card disabled">
-      <div class="icon">🤝</div>
-      <div class="name">Broker</div>
-      <div class="soon">Coming soon</div>
-    </div>
-  </div>
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Choose Business · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      yarnUrl: {{ url_for('business_choose', business_type='yarn')|tojson }},
+      kiryanaUrl: {{ url_for('business_choose', business_type='kiryana')|tojson }},
+      hardwareUrl: {{ url_for('business_choose', business_type='hardware')|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-business-select.js') }}"></script>
+</body>
+</html>

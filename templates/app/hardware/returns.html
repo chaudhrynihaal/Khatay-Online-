@@ -1,195 +1,28 @@
-{% extends "base.html" %}
-{% block title %}Returns{% endblock %}
-{% block page_title %}Returns{% endblock %}
-{% block content %}
-
-<div class="tabs no-print">
-  <a href="{{ url_for('hardware_returns', type='Sale') }}" class="{{ 'active' if return_type == 'Sale' }}">Sale Return</a>
-  <a href="{{ url_for('hardware_returns', type='Purchase') }}" class="{{ 'active' if return_type == 'Purchase' }}">Purchase Return</a>
-</div>
-
-<div class="card card-accent no-print">
-  <h2 style="margin-top:0;">{{ "Customer returning an item" if return_type == "Sale" else "Returning an item to a supplier" }}</h2>
-  <div class="field no-print">
-    <label>Return against a bill (optional)</label>
-    <select id="sourceLineSelect" class="searchable" onchange="onSourceBillChange()">
-      <option value="">Type to search a recent {{ "sale" if return_type == "Sale" else "purchase" }} — or leave blank to enter details manually…</option>
-      {% for inv in source_bills %}
-      <option value="{{ inv.invoice_no }}" data-lines='{{ inv.lines|tojson }}'>
-        {{ inv.invoice }} — {{ inv.party }} — {{ inv.date }} — {{ inv.lines|map(attribute='item')|join(', ') }}{{ " (%d items)"|format(inv.lines|length) if inv.lines|length > 1 }}
-      </option>
-      {% endfor %}
-    </select>
-    <p style="color:var(--ink-soft); font-size:12px; margin:4px 0 0;">Picking a bill fills in the item, {{ "customer" if return_type == "Sale" else "supplier" }}, and rate below — quantity defaults to the full amount originally {{ "sold" if return_type == "Sale" else "bought" }}, so reduce it for a partial return. If the bill has more than one item, pick which one below.</p>
-    <div id="billLinesPicker" class="no-print" style="display:none; margin-top:8px; border:1px solid var(--border); border-radius:8px; overflow:hidden;"></div>
-  </div>
-
-  <form method="post" id="returnForm">
-    <input type="hidden" name="return_type" value="{{ return_type }}">
-    <div class="form-row">
-      <div class="field"><label>Date</label><input type="date" name="date" value="{{ today }}" required></div>
-      <div class="field">
-        <label>Item*</label>
-        <select name="item_id" id="itemSelect" class="searchable" onchange="onItemChange()" required>
-          <option value="">Select an item…</option>
-          {% for i in items %}
-          <option value="{{ i.id }}" data-rate="{{ i.sale_rate if return_type == 'Sale' else i.purchase_rate }}">{{ i.display_name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label>{{ "Customer" if return_type == "Sale" else "Supplier" }}</label>
-        <select name="party_id" id="partySelect" class="searchable">
-          <option value="">{{ "Walk-in (no account)" if return_type == "Sale" else "Unspecified" }}</option>
-          {% for p in (customers if return_type == "Sale" else suppliers) %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label>Mode</label>
-        <select name="mode" id="modeSelect" onchange="onModeChange()">
-          <option value="Cash">Cash refund</option>
-          <option value="Credit">Credit note (adjust balance)</option>
-        </select>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="field"><label>Qty*</label><input type="number" step="0.01" name="qty" id="qty" oninput="recalc()" required></div>
-      <div class="field"><label>Rate*</label><input type="number" step="0.01" name="rate" id="rate" oninput="recalc()" required></div>
-      <div class="field"><label>Amount</label><input type="text" id="amount" disabled></div>
-      <div class="field" style="flex:2;"><label>Reason / Description</label><input type="text" name="description" placeholder="Damaged, wrong item, etc."></div>
-    </div>
-    <p id="creditHint" style="display:none; color:var(--ink-soft); font-size:12.5px; margin:-4px 0 12px;">
-      Credit note mode doesn't touch the Cash Book — it just reduces what the {{ "customer owes you" if return_type == "Sale" else "you owe the supplier" }} on the Ledger.
-    </p>
-    <button type="submit" class="btn btn-primary">Save Return</button>
-  </form>
-</div>
-
-<div class="card">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-    <h2 style="margin:0;">Recent {{ "sale" if return_type == "Sale" else "purchase" }} returns</h2>
-    <button type="button" class="btn btn-secondary no-print" onclick="window.print()">🖨 Print</button>
-  </div>
-  {% if invoices %}
-  <table>
-    <thead><tr><th style="width:24px;"></th><th>Invoice</th><th>Date</th><th>{{ "Customer" if return_type == "Sale" else "Supplier" }}</th><th>Items</th><th class="num">Total</th><th>Mode</th><th class="no-print"></th></tr></thead>
-    <tbody>
-      {% for inv in invoices %}
-      <tr class="party-row" style="cursor:pointer;" onclick="toggleInvoiceRow('retInv{{ loop.index }}', this)">
-        <td class="no-print toggle-arrow">▾</td>
-        <td>{{ inv.invoice }}</td>
-        <td>{{ inv.date }}</td>
-        <td>{{ inv.party }}</td>
-        <td>{{ inv.lines|map(attribute='item')|join(', ') }}{{ " (%d items)"|format(inv.lines|length) if inv.lines|length > 1 }}</td>
-        <td class="num money">{{ "{:,.2f}".format(inv.total_amount) }}</td>
-        <td>{{ inv.mode }}</td>
-        <td class="no-print">
-          <a href="{{ url_for('hardware_print_bill', txn_type='SALE_RETURN' if return_type == 'Sale' else 'PURCHASE_RETURN', txn_id=inv.lines[0].id) }}"
-             target="_blank" class="btn btn-secondary btn-sm" onclick="event.stopPropagation();">🖨 Print</a>
-        </td>
-      </tr>
-      <tr id="retInv{{ loop.index }}" style="display:none;">
-        <td colspan="8" style="padding:0;">
-          <table style="margin:0;">
-            <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th><th class="no-print"></th></tr></thead>
-            <tbody>
-              {% for t in inv.lines %}
-              <tr>
-                <td>{{ t.item }}</td>
-                <td class="num money">{{ "{:g}".format(t.qty) }}</td>
-                <td class="num money">{{ "{:,.2f}".format(t.rate) }}</td>
-                <td class="num money">{{ "{:,.2f}".format(t.amount) }}</td>
-                <td class="no-print" style="white-space:nowrap;">
-                  <a href="{{ url_for('hardware_ledger_transaction_edit', txn_id=t.id, return_to=request.full_path) }}" class="btn btn-secondary btn-sm">Edit</a>
-                  <form method="post" action="{{ url_for('hardware_ledger_transaction_delete', txn_id=t.id) }}" onsubmit="return confirm('Delete this return line?');" style="display:inline;">
-                    <button type="submit" class="btn btn-danger btn-sm">Del</button>
-                  </form>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state"><div class="icon">↩️</div>No {{ "sale" if return_type == "Sale" else "purchase" }} returns recorded yet.</div>
-  {% endif %}
-</div>
-{% endblock %}
-{% block scripts %}
-<script>
-  function onItemChange() {
-    const sel = document.getElementById('itemSelect');
-    const opt = sel.options[sel.selectedIndex];
-    if (!opt || !opt.value) return;
-    document.getElementById('rate').value = opt.dataset.rate;
-    recalc();
-  }
-
-  // ===== "Return against a bill" - a bill (one option per invoice, not
-  // per line, so a 3-item sale shows up as ONE entry instead of looking
-  // like 3 separate near-identical bills) prefills Item, Party, and Rate
-  // (at the original transaction's rate, not today's) so refunds match
-  // what was actually charged. A single-item bill fills the form
-  // straight away; a multi-item bill shows its lines below so the user
-  // picks which one to return. =====
-  function fillReturnFormFromLine(line) {
-    selectSearchableOption(document.getElementById('itemSelect'), line.item_id, line.item, line.rate);
-    if (line.party_id) {
-      selectSearchableOption(document.getElementById('partySelect'), line.party_id, line.party);
-    }
-    document.getElementById('qty').value = line.qty;
-    document.getElementById('rate').value = line.rate;
-    recalc();
-  }
-
-  function onSourceBillChange() {
-    const sel = document.getElementById('sourceLineSelect');
-    const opt = sel.options[sel.selectedIndex];
-    const picker = document.getElementById('billLinesPicker');
-    picker.innerHTML = '';
-    picker.style.display = 'none';
-    if (!opt || !opt.value) return;
-
-    const lines = JSON.parse(opt.dataset.lines || '[]');
-    if (lines.length <= 1) {
-      if (lines.length === 1) fillReturnFormFromLine(lines[0]);
-      return;
-    }
-
-    picker.style.display = '';
-    lines.forEach(function (line, idx) {
-      const row = document.createElement('div');
-      row.textContent = line.item + ' — ' + line.qty + ' @ ' + line.rate.toFixed(2) + ' = ' + (line.qty * line.rate).toFixed(2);
-      row.style.cssText = 'padding:8px 12px; cursor:pointer; font-size:13px;' + (idx > 0 ? ' border-top:1px solid var(--border);' : '');
-      row.addEventListener('mouseenter', function () { row.style.background = 'var(--paper)'; });
-      row.addEventListener('mouseleave', function () { row.style.background = ''; });
-      row.addEventListener('click', function () {
-        fillReturnFormFromLine(line);
-        Array.from(picker.children).forEach(function (r) { r.style.fontWeight = 'normal'; });
-        row.style.fontWeight = '600';
-      });
-      picker.appendChild(row);
-    });
-  }
-  function recalc() {
-    const qty = parseFloat(document.getElementById('qty').value) || 0;
-    const rate = parseFloat(document.getElementById('rate').value) || 0;
-    document.getElementById('amount').value = (qty * rate).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
-  }
-  function onModeChange() {
-    document.getElementById('creditHint').style.display = (document.getElementById('modeSelect').value === 'Credit') ? '' : 'none';
-  }
-
-  function toggleInvoiceRow(id, headerRow) {
-    const row = document.getElementById(id);
-    const open = row.style.display !== 'none';
-    row.style.display = open ? 'none' : '';
-    const arrow = headerRow.querySelector('.toggle-arrow');
-    if (arrow) arrow.textContent = open ? '▾' : '▸';
-  }
-</script>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Returns · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_hardware_page_data.html" %}
+      today: {{ today|tojson }},
+      returnType: {{ return_type|tojson }},
+      items: {{ items|tojson }},
+      customers: {{ customers|tojson }},
+      suppliers: {{ suppliers|tojson }},
+      invoices: {{ invoices|tojson }},
+      sourceBills: {{ source_bills|tojson }},
+      printUrlBase: {{ url_for('hardware_print_bill', txn_type='SALE_RETURN', txn_id=0)|tojson }},
+      purchasePrintUrlBase: {{ url_for('hardware_print_bill', txn_type='PURCHASE_RETURN', txn_id=0)|tojson }},
+      editTxnUrlBase: {{ url_for('hardware_ledger_transaction_edit', txn_id=0)|tojson }},
+      deleteTxnUrlBase: {{ url_for('hardware_ledger_transaction_delete', txn_id=0)|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/hardware-returns.js') }}"></script>
+</body>
+</html>

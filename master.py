@@ -51,6 +51,20 @@ def init_master_db():
             created_at TEXT
         )
     """)
+    conn.commit()
+
+    # --- migration: business_type. Set the first time a company picks a
+    # business off the "What do you deal in?" screen (see
+    # app.py's business_choose()) - once set, login skips straight to
+    # that business's dashboard instead of showing the picker every
+    # time. NULL until then (or for companies from before this existed),
+    # which is exactly what keeps the old show-the-picker behavior for
+    # anyone who hasn't chosen yet. ---
+    cur.execute("PRAGMA table_info(companies)")
+    existing_company_cols = {row[1] for row in cur.fetchall()}
+    if "business_type" not in existing_company_cols:
+        cur.execute("ALTER TABLE companies ADD COLUMN business_type TEXT")
+        conn.commit()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,14 +210,26 @@ def list_companies():
 def get_company(company_id):
     conn = get_master_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, name, slug, subscription_status, subscription_expiry, notes, created_at "
+    cur.execute("SELECT id, name, slug, subscription_status, subscription_expiry, notes, created_at, business_type "
                 "FROM companies WHERE id = ?", (company_id,))
     row = cur.fetchone()
     conn.close()
     if not row:
         return None
     return {"id": row[0], "name": row[1], "slug": row[2], "subscription_status": row[3],
-            "subscription_expiry": row[4], "notes": row[5], "created_at": row[6]}
+            "subscription_expiry": row[4], "notes": row[5], "created_at": row[6], "business_type": row[7]}
+
+
+def set_company_business_type(company_id, business_type):
+    """Called once, the first time (or a deliberate re-choice) a company
+    picks a business off the "What do you deal in?" screen - see
+    app.py's business_choose(). From then on, login() sends them
+    straight to that business's dashboard instead of the picker."""
+    conn = get_master_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE companies SET business_type = ? WHERE id = ?", (business_type, company_id))
+    conn.commit()
+    conn.close()
 
 
 def get_company_by_slug(slug):

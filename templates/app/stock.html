@@ -1,28 +1,22 @@
-{% extends "base.html" %}
-{% block title %}Stock{% endblock %}
-{% block page_title %}Stock Report{% endblock %}
-{% block content %}
-
-<div style="margin-bottom:16px;">
-  <a href="{{ url_for('report_pdf', report_name='stock') }}" target="_blank" class="btn btn-primary">Print / Save PDF</a>
-  <a href="{{ url_for('report_excel', report_name='stock') }}" class="btn btn-secondary">Export to Excel</a>
-</div>
-
-<div class="card">
-  {% if items %}
-  <table>
-    <thead><tr><th>Item / Quality</th><th>Area</th><th class="num">Purch. Rate</th><th class="num">Sale Rate</th><th class="num">Stock Qty</th></tr></thead>
-    <tbody>
-      {% for i in items %}
-      <tr>
-        <td>{{ i.name }}</td><td>{{ i.area or "—" }}</td>
-        <td class="num money">{{ "{:,.2f}".format(i.purchase_rate or 0) }}</td>
-        <td class="num money">{{ "{:,.2f}".format(i.sale_rate or 0) }}</td>
-        <td class="num money" style="{{ 'color:var(--red)' if i.stock < 0 }}">{{ "{:g}".format(i.stock) }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}<div class="empty-state">No items yet.</div>{% endif %}
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Stock Report · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      items: {{ items|tojson }},
+      totalValue: {{ total_value|tojson }},
+      negativeStockCount: {{ negative_stock_count|tojson }},
+      pdfUrl: {{ url_for('report_pdf', report_name='stock')|tojson }},
+      excelUrl: {{ url_for('report_excel', report_name='stock')|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-report-stock.js') }}"></script>
+</body>
+</html>

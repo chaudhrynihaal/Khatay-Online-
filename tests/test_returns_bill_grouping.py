@@ -3,7 +3,16 @@ dropdown option per transaction LINE, so a 3-item sale showed up as 3
 near-identical entries all starting with the same invoice number,
 looking like 3 separate bills. It's grouped by invoice now - one option
 per bill, with a sub-picker for which line to return when a bill has
-more than one item."""
+more than one item.
+
+The Kiryana and Hardware redesigns (React shell reading
+window.__PAGE__.sourceBills, built from the unchanged
+db.kiryana_list_invoices()/db.hardware_list_invoices()) replaced the
+old pages' server-rendered <option data-lines=...> markup with a
+Combobox built client-side from the same grouped JSON, so both tests
+now check that JSON directly rather than scraping HTML option tags -
+the underlying grouping behavior they guard against regressing is
+identical either way."""
 from datetime import date
 
 import db
@@ -25,15 +34,13 @@ def test_kiryana_returns_page_groups_multi_item_sale_as_one_bill(client, company
     r = client.get("/kiryana/returns?type=Sale")
     html = r.data.decode()
 
-    import re
-    bill_options = re.findall(r'<option value="\d+" data-lines=', html)
-    assert len(bill_options) == 1, "a 3-line sale must appear as exactly one bill option, not three"
-
-    m = re.search(r"data-lines='(.*?)'>", html, re.S)
-    import json
-    lines = json.loads(m.group(1))
-    assert len(lines) == 3
-    assert {l["item"] for l in lines} == {"Lays", "Dairy Milk"}
+    idx = html.find("sourceBills")
+    end = html.find("printUrlBase", idx)
+    snippet = html[idx:end]
+    assert snippet.count('"total_amount":') == 1, "a 3-line sale must appear as exactly one bill, not three"
+    assert snippet.count('"item":') == 3
+    assert '"item": "Lays"' in snippet
+    assert '"item": "Dairy Milk"' in snippet
 
 
 def test_hardware_returns_page_groups_multi_item_sale_as_one_bill(client, company):
@@ -47,6 +54,8 @@ def test_hardware_returns_page_groups_multi_item_sale_as_one_bill(client, compan
     r = client.get("/hardware/returns?type=Sale")
     html = r.data.decode()
 
-    import re
-    bill_options = re.findall(r'<option value="\d+" data-lines=', html)
-    assert len(bill_options) == 1
+    idx = html.find("sourceBills")
+    end = html.find("printUrlBase", idx)
+    snippet = html[idx:end]
+    assert snippet.count('"total_amount":') == 1, "a 2-line sale must appear as exactly one bill, not two"
+    assert snippet.count('"item":') == 2

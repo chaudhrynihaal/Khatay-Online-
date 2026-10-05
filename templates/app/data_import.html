@@ -1,80 +1,23 @@
-{% extends "base.html" %}
-{% block title %}Import Data{% endblock %}
-{% block page_title %}Import Your Existing Data{% endblock %}
-{% block content %}
-
-<div class="card card-accent">
-  <p style="color:var(--ink-soft); font-size:13.5px;">
-    Moving from another system? Bring your customers, suppliers, brokers, and items over in one go,
-    along with their current balances — instead of typing everything in one at a time. This brings
-    in your <strong>master data and current balances</strong>, not old individual invoices — set the
-    right starting point here, then everything from today forward gets entered normally in the app.
-  </p>
-  <p style="color:var(--ink-soft); font-size:13px; margin-bottom:0;">
-    Already-existing names are automatically skipped, so it's always safe to re-upload a corrected file.
-  </p>
-</div>
-
-<div class="card">
-  <h2 style="margin-top:0;">Step 1 — Parties (customers, suppliers, brokers)</h2>
-  <p style="font-size:13.5px;">
-    <a href="{{ url_for('data_import_template', kind='parties') }}" class="btn btn-secondary btn-sm">Download Template (Excel)</a>
-    Fill this in with your data (delete the 3 example rows first), then upload it below.
-  </p>
-  <form method="post" action="{{ url_for('data_import_parties') }}" enctype="multipart/form-data" style="display:flex; gap:10px; align-items:end;">
-    <div class="field" style="margin-bottom:0; flex:1;">
-      <label>Filled-in file (.xlsx or .csv)</label>
-      <input type="file" name="file" accept=".xlsx,.csv" required>
-    </div>
-    <button type="submit" class="btn btn-primary">Import Parties</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2 style="margin-top:0;">Step 2 — Items / Quality (with current stock)</h2>
-  <p style="font-size:13.5px;">
-    <a href="{{ url_for('data_import_template', kind='quality') }}" class="btn btn-secondary btn-sm">Download Template (Excel)</a>
-    Same idea — fill it in, then upload.
-  </p>
-  <form method="post" action="{{ url_for('data_import_quality') }}" enctype="multipart/form-data" style="display:flex; gap:10px; align-items:end;">
-    <div class="field" style="margin-bottom:0; flex:1;">
-      <label>Filled-in file (.xlsx or .csv)</label>
-      <input type="file" name="file" accept=".xlsx,.csv" required>
-    </div>
-    <button type="submit" class="btn btn-primary">Import Items</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2 style="margin-top:0;">Step 3 — Outstanding Invoices (Receivable / Payable detail)</h2>
-  <p style="font-size:13.5px; color:var(--ink-soft);">
-    Optional, but recommended — instead of just one lump-sum "opening balance" per party, list every
-    individual invoice or bill that's still unpaid. This carries the real detail forward: what was
-    sold, to whom, when, and how much of it is still outstanding — so your Receivable and Payable
-    Ledgers show the actual breakdown from day one, not just one opaque total per party.
-    <strong>Import your Parties first (Step 1)</strong> — this step needs the party names to already exist.
-  </p>
-  <p style="font-size:13.5px;">
-    <a href="{{ url_for('data_import_template', kind='opening_entries') }}" class="btn btn-secondary btn-sm">Download Template (Excel)</a>
-  </p>
-  <form method="post" action="{{ url_for('data_import_opening_entries') }}" enctype="multipart/form-data" style="display:flex; gap:10px; align-items:end;">
-    <div class="field" style="margin-bottom:0; flex:1;">
-      <label>Filled-in file (.xlsx or .csv)</label>
-      <input type="file" name="file" accept=".xlsx,.csv" required>
-    </div>
-    <button type="submit" class="btn btn-primary">Import Outstanding Invoices</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2 style="margin-top:0;">A note on Opening Balance</h2>
-  <p style="font-size:13.5px; color:var(--ink-soft);">
-    For parties: a <strong>positive</strong> Opening Balance means they owe you money (receivable) —
-    the same as your old software probably showed a customer's outstanding balance. A
-    <strong>negative</strong> number means you owe them (payable) — typical for a supplier balance.
-    For items: Opening Balance is simply how much stock you currently have on hand, right now.
-    If you use Step 3 above for a party, its detailed invoices are shown instead of the single
-    Opening Balance number for that party — no need to fill in both for the same party.
-  </p>
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Import Your Existing Data · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      partiesTemplateUrl: {{ url_for('data_import_template', kind='parties')|tojson }},
+      qualityTemplateUrl: {{ url_for('data_import_template', kind='quality')|tojson }},
+      openingEntriesTemplateUrl: {{ url_for('data_import_template', kind='opening_entries')|tojson }},
+      importPartiesUrl: {{ url_for('data_import_parties')|tojson }},
+      importQualityUrl: {{ url_for('data_import_quality')|tojson }},
+      importOpeningEntriesUrl: {{ url_for('data_import_opening_entries')|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-data-import.js') }}"></script>
+</body>
+</html>

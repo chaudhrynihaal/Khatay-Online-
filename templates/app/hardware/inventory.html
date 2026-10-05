@@ -1,189 +1,23 @@
-{% extends "base.html" %}
-{% block title %}Inventory{% endblock %}
-{% block page_title %}Inventory{% endblock %}
-{% block content %}
-
-<datalist id="categoryList">
-  {% for c in categories %}<option value="{{ c }}">{% endfor %}
-</datalist>
-
-<div class="card card-accent no-print">
-  <h2 style="margin-top:0;">Add items</h2>
-  <form method="post" id="addItemsForm">
-    <div id="itemCardsBody">
-      <div class="item-card" style="border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:12px; position:relative;">
-        <div class="form-row">
-          <div class="field"><label>Name*</label><input type="text" name="name[]" class="card-name"></div>
-          <div class="field">
-            <label>Unit</label>
-            <select name="unit[]" class="card-unit-select" onchange="onUnitSelectChange(this)">
-              <option value="">Select unit…</option>
-              {% for u in standard_units %}<option value="{{ u }}">{{ u }}</option>{% endfor %}
-              <option value="__other__">Other (type below)…</option>
-            </select>
-            <input type="text" name="unit_other[]" class="card-unit-other" placeholder="Type a unit…" style="display:none; margin-top:6px;">
-          </div>
-          <div class="field"><label>Category</label><input type="text" name="category[]" list="categoryList" placeholder="Hand Tools, Plumbing, Electrical…"></div>
-          <div class="field"><label>Barcode</label><input type="text" name="barcode[]" class="card-barcode" placeholder="Scan or type…" autocomplete="off"></div>
-        </div>
-        <div class="form-row">
-          <div class="field"><label>Purchase Rate</label><input type="number" step="0.01" name="purchase_rate[]" value="0"></div>
-          <div class="field"><label>Sale Rate</label><input type="number" step="0.01" name="sale_rate[]" value="0"></div>
-          <div class="field"><label>Opening Stock Qty</label><input type="number" step="0.01" name="opening_qty[]" value="0"></div>
-          <div class="field"><label>Reorder Level</label><input type="number" step="0.01" name="reorder_level[]" value="0" placeholder="0 = no alert"></div>
-        </div>
-        <div class="form-row">
-          <div class="field"><label>Bulk Purchase Unit</label><input type="text" name="purchase_unit[]" placeholder="box, carton, dozen…"></div>
-          <div class="field"><label>Units per Bulk Purchase Unit</label><input type="number" step="0.01" name="conversion_factor[]" value="1"></div>
-        </div>
-        <div class="form-row">
-          <div class="field">
-            <label>Variant Of (optional)</label>
-            <select name="parent_item_id[]">
-              <option value="">Not a variant — standalone item</option>
-              {% for p in parent_items %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="field"><label>Variant Name</label><input type="text" name="variant_name[]" placeholder="1 inch, Red, Large…"></div>
-        </div>
-        <button type="button" class="btn btn-danger btn-sm no-print remove-item-card" onclick="removeItemCard(this)" style="position:absolute; top:10px; right:10px;">✕</button>
-      </div>
-    </div>
-    <button type="button" class="btn btn-secondary no-print" onclick="addItemCard()" style="margin-bottom:14px;">+ Add Another Item</button>
-    <p style="color:var(--ink-soft); font-size:12.5px; margin-top:-4px;">
-      Reorder Level flags an item as low-stock on the dashboard once stock falls to or below it (leave 0 to skip). Bulk Purchase Unit is optional — set it if you buy an item by the box/carton but sell it individually (e.g. box, 50 units per box), and a quick converter will show up on the Purchase form. Variant Of groups an item under a parent (e.g. "Screws — 1 inch") for easier browsing — it still gets its own fully independent stock and rates. Add as many items as you like before saving — blank cards are skipped.
-    </p>
-    <button type="submit" class="btn btn-primary">Add Item(s)</button>
-  </form>
-
-  <template id="itemCardTemplate">
-    <div class="item-card" style="border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:12px; position:relative;">
-      <div class="form-row">
-        <div class="field"><label>Name*</label><input type="text" name="name[]" class="card-name"></div>
-        <div class="field">
-          <label>Unit</label>
-          <select name="unit[]" class="card-unit-select" onchange="onUnitSelectChange(this)">
-            <option value="">Select unit…</option>
-            {% for u in standard_units %}<option value="{{ u }}">{{ u }}</option>{% endfor %}
-            <option value="__other__">Other (type below)…</option>
-          </select>
-          <input type="text" name="unit_other[]" class="card-unit-other" placeholder="Type a unit…" style="display:none; margin-top:6px;">
-        </div>
-        <div class="field"><label>Category</label><input type="text" name="category[]" list="categoryList" placeholder="Hand Tools, Plumbing, Electrical…"></div>
-        <div class="field"><label>Barcode</label><input type="text" name="barcode[]" class="card-barcode" placeholder="Scan or type…" autocomplete="off"></div>
-      </div>
-      <div class="form-row">
-        <div class="field"><label>Purchase Rate</label><input type="number" step="0.01" name="purchase_rate[]" value="0"></div>
-        <div class="field"><label>Sale Rate</label><input type="number" step="0.01" name="sale_rate[]" value="0"></div>
-        <div class="field"><label>Opening Stock Qty</label><input type="number" step="0.01" name="opening_qty[]" value="0"></div>
-        <div class="field"><label>Reorder Level</label><input type="number" step="0.01" name="reorder_level[]" value="0" placeholder="0 = no alert"></div>
-      </div>
-      <div class="form-row">
-        <div class="field"><label>Bulk Purchase Unit</label><input type="text" name="purchase_unit[]" placeholder="box, carton, dozen…"></div>
-        <div class="field"><label>Units per Bulk Purchase Unit</label><input type="number" step="0.01" name="conversion_factor[]" value="1"></div>
-      </div>
-      <div class="form-row">
-        <div class="field">
-          <label>Variant Of (optional)</label>
-          <select name="parent_item_id[]">
-            <option value="">Not a variant — standalone item</option>
-            {% for p in parent_items %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
-          </select>
-        </div>
-        <div class="field"><label>Variant Name</label><input type="text" name="variant_name[]" placeholder="1 inch, Red, Large…"></div>
-      </div>
-      <button type="button" class="btn btn-danger btn-sm no-print remove-item-card" onclick="removeItemCard(this)" style="position:absolute; top:10px; right:10px;">✕</button>
-    </div>
-  </template>
-</div>
-
-<div class="card">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-    <h2 style="margin:0;">All items</h2>
-    <div style="display:flex; gap:10px; align-items:center;" class="no-print">
-      {% if categories %}
-      <select id="categoryFilter" onchange="filterByCategory()">
-        <option value="">All categories</option>
-        {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
-      </select>
-      {% endif %}
-      <button type="button" class="btn btn-secondary" onclick="window.print()">🖨 Print</button>
-    </div>
-  </div>
-  {% if items %}
-  <table id="itemsTable">
-    <thead><tr><th>Item</th><th>Category</th><th>Unit</th><th>Barcode</th><th class="num">Purchase Rate</th><th class="num">Sale Rate</th><th class="num">Stock</th><th class="no-print"></th></tr></thead>
-    <tbody>
-      {% for i in items %}
-      {% set low_stock = i.reorder_level > 0 and i.stock_qty > 0 and i.stock_qty <= i.reorder_level %}
-      <tr data-category="{{ i.category or '' }}">
-        <td>
-          {% if i.parent_item_id %}<span style="color:var(--ink-soft); margin-right:4px;">↳</span>{{ i.variant_name }}
-          {% else %}{{ i.name }}{% endif %}
-        </td>
-        <td>{{ i.category or "—" }}</td>
-        <td>{{ i.unit or "—" }}</td>
-        <td>{{ i.barcode or "—" }}</td>
-        <td class="num money">{{ "{:,.2f}".format(i.purchase_rate or 0) }}</td>
-        <td class="num money">{{ "{:,.2f}".format(i.sale_rate or 0) }}</td>
-        <td class="num money" style="{{ 'color:var(--red)' if i.stock_qty <= 0 else ('color:var(--warn)' if low_stock) }}">
-          {{ "{:g}".format(i.stock_qty) }}{{ " ⚠" if low_stock }}
-        </td>
-        <td class="no-print" style="white-space:nowrap;">
-          <a href="{{ url_for('hardware_edit_item', item_id=i.id) }}" class="btn btn-secondary btn-sm">Edit</a>
-          <form method="post" action="{{ url_for('hardware_delete_item', item_id=i.id) }}" onsubmit="return confirm('Delete this item?');" style="display:inline;">
-            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state"><div class="icon">🔧</div>No items yet — add your first one above.</div>
-  {% endif %}
-</div>
-{% endblock %}
-{% block scripts %}
-<script>
-  // scanning a barcode while adding a new item just fills that card's
-  // Barcode field (a hardware scanner "types" the code then Enter -
-  // suppress the Enter from submitting the form early so the rest can
-  // be filled in). Delegated so it also covers cards added later.
-  document.getElementById('itemCardsBody').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && e.target.classList.contains('card-barcode')) e.preventDefault();
-  });
-
-  function onUnitSelectChange(sel) {
-    sel.closest('.item-card').querySelector('.card-unit-other').style.display =
-      (sel.value === '__other__') ? '' : 'none';
-  }
-
-  function addItemCard() {
-    const tpl = document.getElementById('itemCardTemplate');
-    const clone = tpl.content.cloneNode(true);
-    document.getElementById('itemCardsBody').appendChild(clone);
-    return document.getElementById('itemCardsBody').lastElementChild;
-  }
-
-  function removeItemCard(btn) {
-    const body = document.getElementById('itemCardsBody');
-    const cards = body.querySelectorAll('.item-card');
-    if (cards.length <= 1) {
-      const card = btn.closest('.item-card');
-      card.querySelectorAll('input').forEach(function (el) { el.value = el.type === 'number' ? (el.name.includes('conversion_factor') ? '1' : '0') : ''; });
-      card.querySelectorAll('select').forEach(function (el) { el.value = ''; });
-      card.querySelector('.card-unit-other').style.display = 'none';
-      return;
-    }
-    btn.closest('.item-card').remove();
-  }
-
-  function filterByCategory() {
-    const value = document.getElementById('categoryFilter').value;
-    document.querySelectorAll('#itemsTable tbody tr').forEach(function (row) {
-      row.style.display = (!value || row.dataset.category === value) ? '' : 'none';
-    });
-  }
-</script>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Inventory · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_hardware_page_data.html" %}
+      items: {{ items|tojson }},
+      standardUnits: {{ standard_units|tojson }},
+      categories: {{ categories|tojson }},
+      parentItems: {{ parent_items|tojson }},
+      editItemUrlBase: {{ url_for('hardware_edit_item', item_id=0)|tojson }},
+      deleteItemUrlBase: {{ url_for('hardware_delete_item', item_id=0)|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/hardware-inventory.js') }}"></script>
+</body>
+</html>

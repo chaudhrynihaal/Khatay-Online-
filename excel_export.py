@@ -231,7 +231,7 @@ def generate_ledger_excel(party_id, date_from=None, date_to=None, output_path=No
     for t_date, v_type, vno, do_no, item_name, qty, rate, amount in rows:
         amount = amount or 0
         ref = _db_module.format_voucher_no(v_type, vno)
-        if v_type in ("SALE", "PAYMENT", "CONTRA_DR"):
+        if v_type in ("SALE", "PAYMENT", "CONTRA_DR", "EXPENSE", "CAPITAL_OUT"):
             debit, credit = amount, 0
             balance += amount
         else:
@@ -252,33 +252,18 @@ def generate_ledger_excel(party_id, date_from=None, date_to=None, output_path=No
 
 
 def generate_trial_balance_excel(output_path=None):
-    conn = _db_module.get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, name, opening_balance FROM parties WHERE is_gl = 0 ORDER BY name")
-    parties = cur.fetchall()
+    rows, total_debit, total_credit = _db_module.get_trial_balance()
 
     wb, ws = _new_workbook("Trial Balance")
     row = _write_title(ws, "Trial Balance", "All parties, all-time")
-    headers = ["Party", "Debit (Sale+Payment)", "Credit (Purchase+Receipt)", "Balance"]
+    headers = ["Account", "Debit", "Credit", "Balance"]
     _write_header_row(ws, row, headers)
     row += 1
 
-    total_debit = total_credit = 0.0
-    for party_id, name, opening_balance in parties:
-        cur.execute("SELECT voucher_type, SUM(amount) FROM transactions WHERE party_id = ? GROUP BY voucher_type", (party_id,))
-        sums = {r[0]: (r[1] or 0) for r in cur.fetchall()}
-        opening_balance = opening_balance or 0
-        debit = (opening_balance if opening_balance > 0 else 0) + sums.get("SALE", 0) + sums.get("PAYMENT", 0)
-        credit = (abs(opening_balance) if opening_balance < 0 else 0) + sums.get("PURCHASE", 0) + sums.get("RECEIPT", 0)
-        balance = opening_balance + sums.get("SALE", 0) + sums.get("PAYMENT", 0) - sums.get("PURCHASE", 0) - sums.get("RECEIPT", 0)
-        if debit == 0 and credit == 0 and opening_balance == 0:
-            continue
-        total_debit += debit
-        total_credit += credit
-        ws.append([name, debit, credit, balance])
+    for r in rows:
+        ws.append([r["name"], r["debit"], r["credit"], r["balance"]])
         for c in (2, 3, 4):
             ws.cell(row=ws.max_row, column=c).number_format = MONEY_FORMAT
-    conn.close()
 
     ws.append(["TOTAL", total_debit, total_credit, total_debit - total_credit])
     for c in range(1, 5):
@@ -294,28 +279,102 @@ def generate_trial_balance_excel(output_path=None):
     return output_path
 
 
-def generate_stock_excel(output_path=None):
+def generate_balance_sheet_excel(as_of_date=None, output_path=None):
+    bs = _db_module.get_balance_sheet(as_of_date)
+
+    wb, ws = _new_workbook("Balance Sheet")
+    row = _write_title(ws, "Balance Sheet", f"As of {bs['as_of_date']}")
+    headers = ["Account", "Amount"]
+    _write_header_row(ws, row, headers)
+    row += 1
+
+    def section(label):
+        ws.append([label, None])
+        ws.cell(row=ws.max_row, column=1).font = BOLD
+
+    def line(label, amount, indent=True):
+        ws.append(["    " + label if indent else label, amount])
+        ws.cell(row=ws.max_row, column=2).number_format = MONEY_FORMAT
+
+    def total(label, amount):
+        ws.append([label, amount])
+        ws.cell(row=ws.max_row, column=1).font = BOLD
+        ws.cell(row=ws.max_row, column=2).font = BOLD
+        ws.cell(row=ws.max_row, column=2).number_format = MONEY_FORMAT
+
+    section("ASSETS")
+    line("Cash", bs["cash_balance"])
+    for r in bs["receivables"]:
+        line(f"Receivable — {r['name']}", r["amount"])
+    line("Stock / Inventory", bs["stock_value"])
+    total("TOTAL ASSETS", bs["total_assets"])
+
+    section("LIABILITIES")
+    if not bs["payables"]:
+        line("(none)", 0)
+    for p in bs["payables"]:
+        line(f"Payable — {p['name']}", p["amount"])
+    total("TOTAL LIABILITIES", bs["total_liabilities"])
+
+    section("EQUITY")
+    line("Capital Account", bs["capital"])
+    line("Opening Balance Equity", bs["opening_balance_equity"])
+    line("Retained Earnings", bs["retained_earnings"])
+    total("TOTAL EQUITY", bs["total_equity"])
+
+    total("TOTAL LIABILITIES + EQUITY", bs["total_liabilities_and_equity"])
+
+    _autosize(ws, len(headers))
+    if output_path is None:
+        output_path = _save(wb, "BalanceSheet.xlsx")
+    else:
+        wb.save(output_path)
+    return output_path
+
+
+def generate_stock_excel(with_value=True, output_path=None):
     conn = _db_module.get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, name, city_area, sale_rate, opening_balance FROM quality ORDER BY name")
+    cur.execute("SELECT id, name, city_area FROM quality ORDER BY name")
     items = cur.fetchall()
     conn.close()
 
     wb, ws = _new_workbook("Stock")
-    row = _write_title(ws, "Stock Report", f"As of {date_cls.today().isoformat()}")
-    headers = ["Item / Quality", "Area", "Purch. Rate (avg)", "Sale Rate", "Stock Qty"]
+    subtitle = f"As of {date_cls.today().isoformat()}" + ("" if with_value else " (quantities only)")
+    row = _write_title(ws, "Stock Report", subtitle)
+    headers = ["Item / Quality", "Area", "Closing Qty", "Purch. Rate (avg)", "Stock Value"] if with_value \
+        else ["Item / Quality", "Area", "Closing Qty"]
     _write_header_row(ws, row, headers)
 
-    for qid, name, area, srate, opening in items:
-        purchase_rate = _db_module.get_weighted_avg_purchase_rate(qid)
+    total_closing = 0.0
+    total_value = 0.0
+    for qid, name, area in items:
         stock = _db_module.get_stock_qty(qid)
-        ws.append([name, area or "", purchase_rate, srate or 0, stock])
-        ws.cell(row=ws.max_row, column=3).number_format = MONEY_FORMAT
-        ws.cell(row=ws.max_row, column=4).number_format = MONEY_FORMAT
+        total_closing += stock
+        if with_value:
+            rate = _db_module.get_weighted_avg_purchase_rate(qid)
+            value = stock * rate
+            total_value += value
+            ws.append([name, area or "", stock, rate, value])
+            ws.cell(row=ws.max_row, column=4).number_format = MONEY_FORMAT
+            ws.cell(row=ws.max_row, column=5).number_format = MONEY_FORMAT
+        else:
+            ws.append([name, area or "", stock])
+
+    if with_value:
+        ws.append(["", "TOTAL", total_closing, "", total_value])
+        for c in (1, 5):
+            ws.cell(row=ws.max_row, column=c).font = BOLD
+        ws.cell(row=ws.max_row, column=5).number_format = MONEY_FORMAT
+    else:
+        ws.append(["", "TOTAL", total_closing])
+        for c in (1, 3):
+            ws.cell(row=ws.max_row, column=c).font = BOLD
 
     _autosize(ws, len(headers))
     if output_path is None:
-        output_path = _save(wb, "StockReport.xlsx")
+        suffix = "" if with_value else "_NoValue"
+        output_path = _save(wb, f"StockReport{suffix}.xlsx")
     else:
         wb.save(output_path)
     return output_path
@@ -332,7 +391,7 @@ def generate_profit_excel(date_from, date_to, output_path=None):
         ("Opening Stock Value", profit["opening_stock_value"]), ("Closing Stock Value", profit["closing_stock_value"]),
         ("Cost of Goods Sold", profit["cogs"]), ("Gross Profit", profit["gross_profit"]),
         ("Home Expense", profit["home_expense"]), ("Office Expense", profit["office_expense"]),
-        ("Zakat", profit["zakat_expense"]), ("Net Profit", profit["net_profit"]),
+        ("Net Profit", profit["net_profit"]),
     ]
     for label, value in rows_data:
         ws.append([label, value])
@@ -343,7 +402,10 @@ def generate_profit_excel(date_from, date_to, output_path=None):
     ws.append([])
     ws.append(["Capital Account (all-time)"])
     ws.cell(row=ws.max_row, column=1).font = BOLD
-    for label, value in [("Total Introduced", capital["total_in"]), ("Total Withdrawn", capital["total_out"]),
+    ws.append(["Zakat is a personal draw against capital, not a business expense - it reduces Capital here, not Net Profit above."])
+    for label, value in [("Total Introduced", capital["total_in"]),
+                          ("Total Withdrawn", capital["total_out"] - capital["zakat_total"]),
+                          ("Zakat Paid", capital["zakat_total"]),
                           ("Net Capital", capital["net_capital"])]:
         ws.append([label, value])
         ws.cell(row=ws.max_row, column=2).number_format = MONEY_FORMAT
@@ -358,9 +420,24 @@ def generate_profit_excel(date_from, date_to, output_path=None):
 
 def generate_brokerage_excel(broker_party_id=None, output_path=None):
     rows = _db_module.get_brokerage_report(broker_party_id=broker_party_id)
+    summary = _db_module.get_brokerage_summary(broker_party_id=broker_party_id)
 
     wb, ws = _new_workbook("Brokerage")
     row = _write_title(ws, "Brokerage Report", date_cls.today().isoformat())
+
+    if summary:
+        ws.cell(row=row, column=1, value="Owed / Paid / Balance by broker").font = BOLD
+        row += 1
+        _write_header_row(ws, row, ["Broker", "Owed", "Paid", "Balance"])
+        row += 1
+        for s in summary:
+            ws.cell(row=row, column=1, value=s["broker_name"])
+            ws.cell(row=row, column=2, value=s["owed"]).number_format = MONEY_FORMAT
+            ws.cell(row=row, column=3, value=s["paid"]).number_format = MONEY_FORMAT
+            ws.cell(row=row, column=4, value=s["balance"]).number_format = MONEY_FORMAT
+            row += 1
+        row += 1
+
     headers = ["Broker", "Voucher #", "Date", "D.O.#", "Party", "Item", "Qty", "Amount", "Brokerage"]
     _write_header_row(ws, row, headers)
 

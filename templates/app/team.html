@@ -1,75 +1,23 @@
-{% extends "base.html" %}
-{% block title %}Team{% endblock %}
-{% block page_title %}Team{% endblock %}
-{% block content %}
-
-<div class="card card-accent">
-  <h2 style="margin-top:0;">Add a team member</h2>
-  <form method="post">
-    <div class="form-row">
-      <div class="field"><label>Username</label><input type="text" name="username" required></div>
-      <div class="field"><label>Password</label><input type="text" name="password" minlength="6" required></div>
-      <div class="field"><label>Full name</label><input type="text" name="full_name"></div>
-      <div class="field"><label>Email</label><input type="email" name="email" placeholder="Needed for \"Forgot password?\""></div>
-      <div class="field">
-        <label>Role</label>
-        <select name="role"><option value="staff">Staff</option><option value="admin">Admin</option></select>
-      </div>
-    </div>
-    <button type="submit" class="btn btn-primary">Add User</button>
-  </form>
-</div>
-
-<div class="card">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-    <h2 style="margin:0;">Everyone with access</h2>
-    <form method="get" style="display:flex; gap:8px;">
-      <input type="text" name="q" value="{{ search_q or '' }}" placeholder="Find by username or name…" style="width:220px;">
-      <button type="submit" class="btn btn-secondary btn-sm">Search</button>
-      {% if search_q %}<a href="{{ url_for('team') }}" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
-    </form>
-  </div>
-  {% if search_q and not users %}
-  <div class="empty-state"><div class="icon">🔍</div>No users match "{{ search_q }}".</div>
-  {% elif users %}
-  <table>
-    <thead><tr><th>Username</th><th>Full name</th><th>Email</th><th>Role</th><th>Can Edit Entries</th><th></th></tr></thead>
-    <tbody>
-      {% for u in users %}
-      <tr>
-        <td>{{ u.username }}</td>
-        <td>{{ u.full_name or "—" }}</td>
-        <td>
-          <form method="post" action="{{ url_for('team_set_email', user_id=u.id) }}" style="display:flex; gap:4px;">
-            <input type="email" name="email" value="{{ u.email or '' }}" placeholder="email@…" style="width:170px; padding:6px 8px; font-size:12.5px;">
-            <button type="submit" class="btn btn-secondary btn-sm">Save</button>
-          </form>
-        </td>
-        <td>{{ u.role|title }}</td>
-        <td>
-          {% if u.role == 'admin' %}
-          <span class="badge badge-active">Always (Admin)</span>
-          {% else %}
-          <form method="post" action="{{ url_for('team_toggle_edit', user_id=u.id) }}" style="display:inline;">
-            <button type="submit" class="btn {{ 'btn-primary' if u.can_edit else 'btn-secondary' }} btn-sm">
-              {{ "✓ Can Edit" if u.can_edit else "Grant Edit Rights" }}
-            </button>
-          </form>
-          {% endif %}
-        </td>
-        <td>
-          {% if u.id != current_user.id %}
-          <form method="post" action="{{ url_for('team_delete_user', user_id=u.id) }}" onsubmit="return confirm('Remove this user?');" style="display:inline;">
-            <button type="submit" class="btn btn-danger btn-sm">Remove</button>
-          </form>
-          {% else %}<span style="color:var(--ink-soft); font-size:12px;">(you)</span>{% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state">No team members yet.</div>
-  {% endif %}
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Team · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      currentUserId: {{ current_user.id|tojson }},
+      users: {{ users|tojson }},
+      searchQ: {{ search_q|tojson }},
+      deleteUserUrlBase: {{ url_for('team_delete_user', user_id=0)|tojson }},
+      toggleEditUrlBase: {{ url_for('team_toggle_edit', user_id=0)|tojson }},
+      setEmailUrlBase: {{ url_for('team_set_email', user_id=0)|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-team.js') }}"></script>
+</body>
+</html>

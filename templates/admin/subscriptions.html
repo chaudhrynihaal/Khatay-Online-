@@ -1,45 +1,21 @@
-{% extends "base.html" %}
-{% block title %}Subscriptions{% endblock %}
-{% block page_title %}Subscriptions — Due Dates{% endblock %}
-{% block content %}
-
-<a href="{{ url_for('admin_dashboard') }}">&larr; Companies</a>
-
-<div class="stat-grid" style="margin-top:14px;">
-  <div class="stat-card"><div class="label">Overdue</div><div class="value red">{{ overdue_count }}</div></div>
-  <div class="stat-card"><div class="label">Due within 7 days</div><div class="value">{{ due_soon_count }}</div></div>
-  <div class="stat-card"><div class="label">Total Companies</div><div class="value">{{ companies|length }}</div></div>
-</div>
-
-<div class="card">
-  {% if companies %}
-  <table>
-    <thead><tr><th>Company</th><th>Status</th><th>Expiry Date</th><th>Days</th><th></th></tr></thead>
-    <tbody>
-      {% for c in companies %}
-      <tr class="{{ 'overdue' if c.is_expired }}">
-        <td><a href="{{ url_for('admin_company_detail', company_id=c.id) }}">{{ c.name }}</a></td>
-        <td>
-          {% if c.subscription_status == 'active' %}<span class="badge badge-active">Active</span>
-          {% elif c.subscription_status == 'trial' and not c.is_expired %}<span class="badge badge-trial">Trial</span>
-          {% else %}<span class="badge badge-expired">{{ c.subscription_status|title }}{% if c.is_expired %} (expired){% endif %}</span>
-          {% endif %}
-        </td>
-        <td>{{ c.subscription_expiry or "No expiry" }}</td>
-        <td>
-          {% if c.days_until_due is not none %}
-            {% if c.days_until_due < 0 %}Overdue by {{ -c.days_until_due }}d
-            {% elif c.days_until_due == 0 %}Due today
-            {% else %}Due in {{ c.days_until_due }}d{% endif %}
-          {% else %}—{% endif %}
-        </td>
-        <td><a href="{{ url_for('admin_company_detail', company_id=c.id) }}" class="btn btn-secondary btn-sm">Manage</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state"><div class="icon">📅</div>No companies yet.</div>
-  {% endif %}
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Subscriptions · Khatay Admin</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_admin_page_data.html" %}
+      companies: {{ companies|tojson }},
+      overdueCount: {{ overdue_count|tojson }},
+      dueSoonCount: {{ due_soon_count|tojson }},
+      companyDetailUrlBase: {{ url_for('admin_company_detail', company_id=0)|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/admin-subscriptions.js') }}"></script>
+</body>
+</html>

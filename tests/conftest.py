@@ -56,3 +56,11 @@ def client(company):
     with c.session_transaction() as sess:
         sess["user_id"] = company["admin_user_id"]
     return c
+
+
+@pytest.fixture()
+def client_anon(isolated_env):
+    """Flask test client with no session at all - for the pre-auth
+    screens (Login, Forgot Password, Reset Password) that render before
+    g.user/g.company exist."""
+    return app_module.app.test_client()

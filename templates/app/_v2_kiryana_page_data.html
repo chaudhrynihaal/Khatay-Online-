@@ -1,0 +1,25 @@
+{# Common window.__PAGE__ fields shared by every migrated Kiryana screen
+   - mirrors _v2_page_data.html but with Kiryana's own nav URL set
+   (nav.parties etc. don't apply here - Kiryana has no standalone
+   Parties page, customers/suppliers are managed inline via mini-forms
+   on Sales/Purchases). Include inside the object literal: window.__PAGE__
+   = { {% include "app/_v2_kiryana_page_data.html" %} <page fields> }; #}
+companyName: {{ company_name|tojson }},
+userName: {{ (current_user.full_name or current_user.username)|tojson }},
+userInitial: {{ (current_user.full_name or current_user.username)[0]|upper|tojson }},
+businessSelectUrl: {{ url_for('business_select')|tojson }},
+logoutUrl: {{ url_for('logout')|tojson }},
+csrfToken: {{ csrf_token()|tojson }},
+isAdmin: {{ (current_user.role == 'admin')|tojson }},
+canEdit: {{ current_user.can_edit|tojson }},
+flashes: {{ get_flashed_messages(with_categories=true)|tojson }},
+nav: {
+  dashboard: {{ url_for('kiryana_dashboard')|tojson }},
+  inventory: {{ url_for('kiryana_inventory')|tojson }},
+  sales: {{ url_for('kiryana_sales')|tojson }},
+  purchases: {{ url_for('kiryana_purchases')|tojson }},
+  returns: {{ url_for('kiryana_returns')|tojson }},
+  cashbook: {{ url_for('kiryana_cashbook')|tojson }},
+  ledger: {{ url_for('kiryana_ledger')|tojson }},
+  expenses: {{ url_for('kiryana_expenses')|tojson }}
+},

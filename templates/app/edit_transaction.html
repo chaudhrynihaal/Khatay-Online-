@@ -1,75 +1,22 @@
-{% extends "base.html" %}
-{% block title %}Edit Entry{% endblock %}
-{% block page_title %}Edit {{ v_type.replace('_', ' ').title() }}{% endblock %}
-{% block content %}
-
-<div class="card card-accent">
-  <form method="post">
-    <input type="hidden" name="return_to" value="{{ return_to }}">
-
-    {% if v_type in ['SALE', 'PURCHASE'] %}
-    <div class="form-row">
-      <div class="field"><label>Date</label><input type="date" name="date" value="{{ txn.date }}" required></div>
-      <div class="field"><label>D.O. No.</label><input type="text" name="do_no" value="{{ txn.do_no or '' }}"></div>
-      <div class="field"><label>Broker</label><input type="text" name="broker" value="{{ txn.broker or '' }}"></div>
-      <div class="field"><label>Credit Days</label><input type="number" name="credit_days" value="{{ txn.credit_days or 0 }}"></div>
-    </div>
-    <div class="form-row">
-      <div class="field">
-        <label>Party*</label>
-        <select name="party_id" class="searchable" required>
-          {% for p in parties %}<option value="{{ p.id }}" {{ 'selected' if p.id == txn.party_id }}>{{ p.name }} ({{ p.type }})</option>{% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label>Item / Quality*</label>
-        <select name="quality_id" class="searchable" required>
-          {% for i in items %}<option value="{{ i.id }}" {{ 'selected' if i.id == txn.quality_id }}>{{ i.name }}</option>{% endfor %}
-        </select>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="field"><label>Qty*</label><input type="number" step="0.01" name="qty" value="{{ txn.qty }}" required></div>
-      <div class="field"><label>Rate*</label><input type="number" step="0.01" name="rate" value="{{ txn.rate }}" required></div>
-      <div class="field">
-        <label>Mode</label>
-        <select name="mode"><option {{ 'selected' if txn.cash_or_cheque == 'Cash' }}>Cash</option><option {{ 'selected' if txn.cash_or_cheque == 'Cheque' }}>Cheque</option></select>
-      </div>
-      <div class="field"><label>Cheque No.</label><input type="text" name="cheque_no" value="{{ txn.cheque_no or '' }}"></div>
-    </div>
-    <div class="field"><label>Description</label><input type="text" name="description" value="{{ txn.description or '' }}"></div>
-
-    {% elif v_type in ['RECEIPT', 'PAYMENT'] %}
-    <div class="form-row">
-      <div class="field"><label>Date</label><input type="date" name="date" value="{{ txn.date }}" required></div>
-      <div class="field">
-        <label>Party*</label>
-        <select name="party_id" class="searchable" required>
-          {% for p in parties %}<option value="{{ p.id }}" {{ 'selected' if p.id == txn.party_id }}>{{ p.name }} ({{ p.type }})</option>{% endfor %}
-        </select>
-      </div>
-      <div class="field"><label>Amount*</label><input type="number" step="0.01" name="amount" value="{{ txn.amount }}" required></div>
-    </div>
-    <div class="form-row">
-      <div class="field">
-        <label>Mode</label>
-        <select name="mode"><option {{ 'selected' if txn.cash_or_cheque == 'Cash' }}>Cash</option><option {{ 'selected' if txn.cash_or_cheque == 'Cheque' }}>Cheque</option></select>
-      </div>
-      <div class="field"><label>Cheque No.</label><input type="text" name="cheque_no" value="{{ txn.cheque_no or '' }}"></div>
-      <div class="field" style="flex:2;"><label>Description</label><input type="text" name="description" value="{{ txn.description or '' }}"></div>
-    </div>
-    <p style="color:var(--ink-soft); font-size:12.5px;">Note: this entry may have multiple cheque lines attached — editing here only changes the total amount/date/description, not individual cheque lines. Delete and re-enter if you need to change the cheque breakdown.</p>
-
-    {% else %}
-    <div class="form-row">
-      <div class="field"><label>Date</label><input type="date" name="date" value="{{ txn.date }}" required></div>
-      <div class="field"><label>Amount*</label><input type="number" step="0.01" name="amount" value="{{ txn.amount }}" required></div>
-      <div class="field" style="flex:2;"><label>Description</label><input type="text" name="description" value="{{ txn.description or '' }}"></div>
-    </div>
-    {% endif %}
-
-    <button type="submit" class="btn btn-primary">Save Changes</button>
-    <a href="{{ return_to or url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
-  </form>
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Edit {{ v_type.replace('_', ' ').title() }} · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      vType: {{ v_type|tojson }},
+      txn: {{ txn|tojson }},
+      parties: {{ parties|tojson }},
+      items: {{ items|tojson }},
+      returnTo: {{ return_to|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-edit-transaction.js') }}"></script>
+</body>
+</html>

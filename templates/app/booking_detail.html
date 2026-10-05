@@ -1,62 +1,20 @@
-{% extends "base.html" %}
-{% block title %}{{ booking.booking_display }}{% endblock %}
-{% block page_title %}Booking Breakout — {{ booking.booking_display }}{% endblock %}
-{% block content %}
-
-<a href="{{ url_for('bookings') }}">&larr; All bookings</a>
-
-<div class="stat-grid" style="margin-top:14px;">
-  <div class="stat-card"><div class="label">Type</div><div class="value" style="font-size:16px;">{{ booking.voucher_type|title }}</div></div>
-  <div class="stat-card"><div class="label">Party</div><div class="value" style="font-size:16px;">{{ booking.party_name }}</div></div>
-  <div class="stat-card"><div class="label">Item</div><div class="value" style="font-size:16px;">{{ booking.item_name }}</div></div>
-  <div class="stat-card"><div class="label">Status</div><div class="value" style="font-size:16px;">{{ booking.status }}</div></div>
-</div>
-
-<div class="stat-grid">
-  <div class="stat-card"><div class="label">Booked Qty</div><div class="value money">{{ "{:g}".format(booking.qty) }}</div></div>
-  <div class="stat-card"><div class="label">Delivered Qty</div><div class="value money">{{ "{:g}".format(booking.delivered_qty) }}</div></div>
-  <div class="stat-card"><div class="label">Remaining Qty</div><div class="value money">{{ "{:g}".format(booking.remaining_qty) }}</div></div>
-  <div class="stat-card"><div class="label">Rate</div><div class="value money">Rs. {{ "{:,.2f}".format(booking.rate) }}</div></div>
-</div>
-
-<div class="card">
-  <h2 style="margin-top:0;">Booking details</h2>
-  <table>
-    <tbody>
-      <tr><td>Booking Date</td><td>{{ booking.date }}</td></tr>
-      <tr><td>Full Booked Amount</td><td class="money">Rs. {{ "{:,.2f}".format(booking.amount) }}</td></tr>
-      <tr><td>Delivery Terms</td><td>{{ booking.delivery_terms or "—" }}</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<div class="card">
-  <h2 style="margin-top:0;">Complete delivery breakout</h2>
-  {% if deliveries %}
-  <table>
-    <thead><tr><th>Voucher #</th><th>Date</th><th>D.O.#</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th><th>Mode</th><th>Description</th><th></th></tr></thead>
-    <tbody>
-      {% for d in deliveries %}
-      <tr>
-        <td>{{ d.voucher_display }}</td><td>{{ d.date }}</td><td>{{ d.do_no or "—" }}</td>
-        <td class="num money">{{ "{:g}".format(d.qty) }}</td>
-        <td class="num money">{{ "{:,.2f}".format(d.rate) }}</td>
-        <td class="num money">{{ "{:,.2f}".format(d.amount) }}</td>
-        <td>{{ d.mode or "Cash" }}</td><td>{{ d.description or "—" }}</td>
-        <td><a href="{{ url_for('print_voucher', transaction_id=d.transaction_id) }}" target="_blank" class="btn btn-secondary btn-sm">Print</a></td>
-      </tr>
-      {% endfor %}
-      <tr class="party-row">
-        <td colspan="3">TOTAL DELIVERED</td>
-        <td class="num money">{{ "{:g}".format(booking.delivered_qty) }}</td>
-        <td></td>
-        <td class="num money">{{ "{:,.2f}".format(deliveries|sum(attribute='amount')) }}</td>
-        <td colspan="3"></td>
-      </tr>
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state"><div class="icon">📦</div>No deliveries recorded against this booking yet.</div>
-  {% endif %}
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>{{ booking.booking_display }} · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      booking: {{ booking|tojson }},
+      deliveries: {{ deliveries|tojson }},
+      printVoucherUrlBase: {{ url_for('print_voucher', transaction_id=0)|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-booking-detail.js') }}"></script>
+</body>
+</html>

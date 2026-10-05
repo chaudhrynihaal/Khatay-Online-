@@ -376,11 +376,14 @@ def generate_party_ledger_pdf(party_id, date_from=None, date_to=None, output_pat
         t_date, v_type, voucher_no, do_no, item_name, qty, amount, desc = r
         amount = amount or 0
         ref = _format_voucher_no(v_type, voucher_no)
-        if v_type in ("SALE", "PAYMENT"):
+        # same sides as app.py's report_ledger() / db.get_trial_balance() -
+        # covers GL accounts (Expense/Capital) too, not just ordinary
+        # customers/suppliers
+        if v_type in ("SALE", "PAYMENT", "CONTRA_DR", "EXPENSE", "CAPITAL_OUT"):
             debit, credit = amount, 0
             balance += amount
             total_debit += amount
-        else:  # PURCHASE, RECEIPT
+        else:  # PURCHASE, RECEIPT, CONTRA_CR, CAPITAL_IN
             debit, credit = 0, amount
             balance -= amount
             total_credit += amount
@@ -499,33 +502,12 @@ def generate_receivable_payable_pdf(as_of_date=None, output_path=None):
 # 4. TRIAL BALANCE (all-time, all parties)
 # =======================================================================
 def generate_trial_balance_pdf(output_path=None):
-    conn = _get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, name, opening_balance FROM parties WHERE is_gl = 0 ORDER BY name")
-    parties = cur.fetchall()
+    rows, total_debit, total_credit = _db_module.get_trial_balance()
 
-    table_data = [["Party", "Debit (Sale + Payment)", "Credit (Purchase + Receipt)", "Balance"]]
-    total_debit, total_credit, total_balance = 0.0, 0.0, 0.0
-
-    for party_id, name, opening_balance in parties:
-        cur.execute(
-            "SELECT voucher_type, SUM(amount) FROM transactions WHERE party_id = ? GROUP BY voucher_type",
-            (party_id,),
-        )
-        sums = {row[0]: (row[1] or 0) for row in cur.fetchall()}
-        debit = (opening_balance or 0 if (opening_balance or 0) > 0 else 0) + sums.get("SALE", 0) + sums.get("PAYMENT", 0)
-        credit = (abs(opening_balance) if (opening_balance or 0) < 0 else 0) + sums.get("PURCHASE", 0) + sums.get("RECEIPT", 0)
-        balance = (opening_balance or 0) + sums.get("SALE", 0) + sums.get("PAYMENT", 0) \
-            - sums.get("PURCHASE", 0) - sums.get("RECEIPT", 0)
-        if debit == 0 and credit == 0 and (opening_balance or 0) == 0:
-            continue
-        total_debit += debit
-        total_credit += credit
-        total_balance += balance
-        table_data.append([name, fmt_amount(debit), fmt_amount(credit), fmt_amount(balance)])
-
-    conn.close()
-    table_data.append(["TOTAL", fmt_amount(total_debit), fmt_amount(total_credit), fmt_amount(total_balance)])
+    table_data = [["Account", "Debit", "Credit", "Balance"]]
+    for r in rows:
+        table_data.append([r["name"], fmt_amount(r["debit"]), fmt_amount(r["credit"]), fmt_amount(r["balance"])])
+    table_data.append(["TOTAL", fmt_amount(total_debit), fmt_amount(total_credit), fmt_amount(total_debit - total_credit)])
 
     flow = _header_flowables("Trial Balance", "All parties, all-time")
     col_widths = [55 * mm, 45 * mm, 45 * mm, 34 * mm]
@@ -544,18 +526,90 @@ def generate_trial_balance_pdf(output_path=None):
 
 
 # =======================================================================
+# 4b. BALANCE SHEET (as of a given date)
+# =======================================================================
+def generate_balance_sheet_pdf(as_of_date=None, output_path=None):
+    bs = _db_module.get_balance_sheet(as_of_date)
+
+    table_data = [["Account", "Amount"]]
+    section_rows = []  # row indices (into table_data) that are section/total headers
+
+    def section(label):
+        section_rows.append(len(table_data))
+        table_data.append([label, ""])
+
+    def line(label, amount, indent=True):
+        table_data.append(["    " + label if indent else label, fmt_amount(amount)])
+
+    def total(label, amount):
+        section_rows.append(len(table_data))
+        table_data.append([label, fmt_amount(amount)])
+
+    section("ASSETS")
+    line("Cash", bs["cash_balance"])
+    for r in bs["receivables"]:
+        line(f"Receivable — {r['name']}", r["amount"])
+    line("Stock / Inventory", bs["stock_value"])
+    total("TOTAL ASSETS", bs["total_assets"])
+
+    section("LIABILITIES")
+    if not bs["payables"]:
+        line("(none)", 0)
+    for p in bs["payables"]:
+        line(f"Payable — {p['name']}", p["amount"])
+    total("TOTAL LIABILITIES", bs["total_liabilities"])
+
+    section("EQUITY")
+    line("Capital Account", bs["capital"])
+    line("Opening Balance Equity", bs["opening_balance_equity"])
+    line("Retained Earnings", bs["retained_earnings"])
+    total("TOTAL EQUITY", bs["total_equity"])
+
+    total("TOTAL LIABILITIES + EQUITY", bs["total_liabilities_and_equity"])
+
+    flow = _header_flowables("Balance Sheet", f"As of {bs['as_of_date']}")
+    col_widths = [130 * mm, 40 * mm]
+    tbl = Table(table_data, colWidths=col_widths, repeatRows=1)
+    style_cmds = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(_get_theme_colors()["primary_dark"])),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, colors.HexColor("#bbbbbb")),
+    ]
+    for idx in section_rows:
+        style_cmds.append(("FONTNAME", (0, idx), (-1, idx), "Helvetica-Bold"))
+        style_cmds.append(("LINEABOVE", (0, idx), (-1, idx), 0.75, colors.HexColor("#bbbbbb")))
+    tbl.setStyle(TableStyle(style_cmds))
+    flow.append(tbl)
+    flow.extend(_footer_flowables())
+
+    if output_path is None:
+        output_path = os.path.join(_default_output_dir(), "BalanceSheet.pdf")
+    return _build_pdf(output_path, flow)
+
+
+# =======================================================================
 # 5. STOCK REPORT
 # =======================================================================
-def generate_stock_report_pdf(output_path=None):
+def generate_stock_report_pdf(with_value=True, output_path=None):
     conn = _get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, name, city_area, purchase_rate, sale_rate, opening_balance FROM quality ORDER BY name")
+    cur.execute("SELECT id, name, city_area, opening_balance FROM quality ORDER BY name")
     items = cur.fetchall()
 
-    table_data = [["Item / Quality", "Area", "Purch. Rate", "Sale Rate", "Opening Qty", "Purchased", "Sold", "Closing Qty"]]
+    if with_value:
+        table_data = [["Item / Quality", "Area", "Closing Qty", "Purch. Rate (avg)", "Stock Value"]]
+    else:
+        table_data = [["Item / Quality", "Area", "Closing Qty"]]
     total_closing = 0.0
+    total_value = 0.0
 
-    for q_id, name, city_area, purchase_rate, sale_rate, opening_balance in items:
+    for q_id, name, city_area, opening_balance in items:
         cur.execute(
             "SELECT voucher_type, SUM(qty) FROM transactions WHERE quality_id = ? GROUP BY voucher_type",
             (q_id,),
@@ -565,16 +619,27 @@ def generate_stock_report_pdf(output_path=None):
         sold = sums.get("SALE", 0)
         closing = (opening_balance or 0) + purchased - sold
         total_closing += closing
-        table_data.append([
-            name, city_area or "-", fmt_amount(purchase_rate), fmt_amount(sale_rate),
-            f"{(opening_balance or 0):g}", f"{purchased:g}", f"{sold:g}", f"{closing:g}",
-        ])
+        if with_value:
+            # same weighted-average rate the Stock report page and Excel
+            # export use - not the raw (mostly unused) quality.purchase_rate
+            # column, which only prices an item's opening stock
+            rate = _db_module.get_weighted_avg_purchase_rate(q_id) if _db_module else 0.0
+            value = closing * rate
+            total_value += value
+            table_data.append([name, city_area or "-", f"{closing:g}", fmt_amount(rate), fmt_amount(value)])
+        else:
+            table_data.append([name, city_area or "-", f"{closing:g}"])
 
     conn.close()
-    table_data.append(["", "", "", "", "", "", "TOTAL", f"{total_closing:g}"])
+    if with_value:
+        table_data.append(["", "TOTAL", f"{total_closing:g}", "", fmt_amount(total_value)])
+        col_widths = [50 * mm, 30 * mm, 25 * mm, 30 * mm, 30 * mm]
+    else:
+        table_data.append(["", "TOTAL", f"{total_closing:g}"])
+        col_widths = [80 * mm, 40 * mm, 30 * mm]
 
-    flow = _header_flowables("Stock Report", f"As of {date_cls.today().isoformat()}")
-    col_widths = [35 * mm, 22 * mm, 20 * mm, 20 * mm, 20 * mm, 18 * mm, 18 * mm, 20 * mm]
+    subtitle = f"As of {date_cls.today().isoformat()}" + ("" if with_value else " (quantities only)")
+    flow = _header_flowables("Stock Report", subtitle)
     tbl = Table(table_data, colWidths=col_widths, repeatRows=1)
     tbl.setStyle(_standard_table_style())
     tbl.setStyle(TableStyle([
@@ -585,7 +650,67 @@ def generate_stock_report_pdf(output_path=None):
     flow.extend(_footer_flowables())
 
     if output_path is None:
-        output_path = os.path.join(_default_output_dir(), "StockReport.pdf")
+        suffix = "" if with_value else "_NoValue"
+        output_path = os.path.join(_default_output_dir(), f"StockReport{suffix}.pdf")
+    return _build_pdf(output_path, flow)
+
+
+# =======================================================================
+# 5b. BROKERAGE BILL (one broker, or every broker if none given)
+# =======================================================================
+def generate_brokerage_bill_pdf(broker_party_id=None, output_path=None):
+    rows = _db_module.get_brokerage_report(broker_party_id=broker_party_id)
+    summary = _db_module.get_brokerage_summary(broker_party_id=broker_party_id)
+
+    by_broker = {}
+    order = []
+    for r in rows:
+        key = r["broker_party_id"]
+        if key not in by_broker:
+            by_broker[key] = []
+            order.append(key)
+        by_broker[key].append(r)
+
+    subtitle = "All brokers" if not broker_party_id else (summary[0]["broker_name"] if summary else "")
+    flow = _header_flowables("Brokerage Bill", subtitle)
+
+    if summary:
+        sum_data = [["Broker", "Owed", "Paid", "Balance"]]
+        for s in summary:
+            sum_data.append([s["broker_name"], fmt_amount(s["owed"]), fmt_amount(s["paid"]), fmt_amount(s["balance"])])
+        sum_tbl = Table(sum_data, colWidths=[60 * mm, 35 * mm, 35 * mm, 35 * mm], repeatRows=1)
+        sum_tbl.setStyle(_standard_table_style())
+        sum_tbl.setStyle(TableStyle([("ALIGN", (1, 1), (-1, -1), "RIGHT")]))
+        flow.append(sum_tbl)
+        flow.append(Spacer(1, 6 * mm))
+
+    for key in order:
+        broker_rows = by_broker[key]
+        flow.append(Paragraph(broker_rows[0]["broker_name"], ParagraphStyle("BrokerHead", parent=styles["Heading3"])))
+        table_data = [["Voucher #", "Date", "D.O.#", "Party", "Item", "Qty", "Amount", "Brokerage"]]
+        subtotal = 0.0
+        for r in broker_rows:
+            subtotal += r["brokerage"]
+            table_data.append([
+                r["voucher_display"], fmt_date(r["date"]), r["do_no"] or "-", r["party_name"] or "-",
+                r["item_name"] or "-", f"{(r['qty'] or 0):g}" if r["qty"] else "-",
+                fmt_amount(r["amount"]), fmt_amount(r["brokerage"]),
+            ])
+        table_data.append(["", "", "", "", "", "", "Subtotal", fmt_amount(subtotal)])
+        tbl = Table(table_data, colWidths=[25 * mm, 20 * mm, 18 * mm, 30 * mm, 30 * mm, 15 * mm, 22 * mm, 22 * mm], repeatRows=1)
+        tbl.setStyle(_standard_table_style())
+        tbl.setStyle(TableStyle([
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ("ALIGN", (5, 1), (-1, -1), "RIGHT"),
+        ]))
+        flow.append(tbl)
+        flow.append(Spacer(1, 6 * mm))
+
+    flow.extend(_footer_flowables())
+
+    if output_path is None:
+        suffix = f"_{broker_party_id}" if broker_party_id else ""
+        output_path = os.path.join(_default_output_dir(), f"BrokerageBill{suffix}.pdf")
     return _build_pdf(output_path, flow)
 
 
@@ -818,7 +943,6 @@ def generate_profit_report_pdf(date_from, date_to, output_path=None):
         ["Gross Profit (Sales − COGS)", fmt_amount(profit["gross_profit"])],
         ["Home Expense", fmt_amount(profit["home_expense"])],
         ["Office Expense", fmt_amount(profit["office_expense"])],
-        ["Zakat", fmt_amount(profit["zakat_expense"])],
         ["Net Profit", fmt_amount(profit["net_profit"])],
     ]
     tbl = Table(profit_data, colWidths=[100 * mm, 60 * mm])
@@ -829,24 +953,29 @@ def generate_profit_report_pdf(date_from, date_to, output_path=None):
         ("LINEBELOW", (0, 4), (-1, 4), 0.5, colors.grey),
         ("LINEABOVE", (0, 5), (-1, 5), 1, colors.black),
         ("FONTNAME", (0, 5), (-1, 5), "Helvetica-Bold"),
-        ("LINEABOVE", (0, 9), (-1, 9), 1, colors.black),
-        ("FONTNAME", (0, 9), (-1, 9), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 9), (-1, 9), 11),
+        ("LINEABOVE", (0, 8), (-1, 8), 1, colors.black),
+        ("FONTNAME", (0, 8), (-1, 8), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 8), (-1, 8), 11),
     ]))
     flow.append(tbl)
 
     flow.append(Spacer(1, 8 * mm))
     flow.append(Paragraph("Capital Account", ParagraphStyle("CapHead", parent=styles["Heading3"])))
+    flow.append(Paragraph(
+        "Zakat is a personal draw against capital, not a business expense - it reduces Capital below, not Net Profit above.",
+        ParagraphStyle("CapNote", parent=styles["Normal"], fontSize=8, textColor=colors.grey, spaceAfter=4),
+    ))
     cap_data = [["Total Capital Introduced", fmt_amount(capital["total_in"])],
-                ["Total Capital Withdrawn", fmt_amount(capital["total_out"])],
+                ["Total Capital Withdrawn", fmt_amount(capital["total_out"] - capital["zakat_total"])],
+                ["Zakat Paid", fmt_amount(capital["zakat_total"])],
                 ["Net Capital", fmt_amount(capital["net_capital"])]]
     cap_tbl = Table(cap_data, colWidths=[100 * mm, 60 * mm])
     cap_tbl.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 10),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
         ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LINEABOVE", (0, 2), (-1, 2), 1, colors.black),
-        ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
+        ("LINEABOVE", (0, 3), (-1, 3), 1, colors.black),
+        ("FONTNAME", (0, 3), (-1, 3), "Helvetica-Bold"),
     ]))
     flow.append(cap_tbl)
     flow.extend(_footer_flowables())

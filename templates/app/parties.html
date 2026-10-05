@@ -1,99 +1,19 @@
-{% extends "base.html" %}
-{% block title %}Parties{% endblock %}
-{% block page_title %}Parties{% endblock %}
-{% block content %}
-
-<div class="card card-accent">
-  <h2 style="margin-top:0;">Add a party</h2>
-  <form method="post">
-    <div class="form-row">
-      <div class="field"><label>Name*</label><input type="text" name="name" required></div>
-      <div class="field">
-        <label>Type</label>
-        <select name="party_type" id="partyTypeSelect" onchange="onPartyTypeChange()">
-          <option>Customer</option><option>Supplier</option><option>Broker</option>
-          <option>Expense</option><option>Bank</option>
-        </select>
-      </div>
-      <div class="field"><label>City</label><input type="text" name="city"></div>
-      <div class="field"><label>Phone</label><input type="text" name="phone"></div>
-    </div>
-    <div class="form-row">
-      <div class="field"><label>NTN</label><input type="text" name="ntn"></div>
-      <div class="field"><label>STN</label><input type="text" name="stn"></div>
-      <div class="field"><label>Credit Limit</label><input type="number" step="0.01" name="credit_limit" value="0"></div>
-      <div class="field"><label>Opening Balance</label><input type="number" step="0.01" name="opening_balance" value="0"></div>
-    </div>
-    <div class="field"><label>Address</label><input type="text" name="address"></div>
-
-    <div class="field" id="brokerageFields" style="display:none; background:var(--primary-light); padding:14px; border-radius:8px; margin-top:8px;">
-      <label style="margin-bottom:8px;">Brokerage Rate (used to automatically calculate brokerage on every transaction this broker is assigned to)</label>
-      <div class="form-row">
-        <div class="field" style="flex:0 0 220px;">
-          <select name="brokerage_type">
-            <option value="percentage">Percentage of sale amount</option>
-            <option value="per_unit">Fixed rate per unit/bag (e.g. Rs 50 per bag)</option>
-          </select>
-        </div>
-        <div class="field" style="flex:0 0 160px;"><input type="number" step="0.01" name="brokerage_rate" placeholder="e.g. 1.5 or 50"></div>
-      </div>
-    </div>
-
-    <button type="submit" class="btn btn-primary">Add Party</button>
-  </form>
-</div>
-
-<div class="card">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-    <h2 style="margin:0;">{{ "Search results" if search_q else "All parties" }}</h2>
-    <form method="get" style="display:flex; gap:8px;">
-      <input type="text" name="q" value="{{ search_q or '' }}" placeholder="Search name, city, phone…" style="width:240px;">
-      <button type="submit" class="btn btn-secondary btn-sm">Search</button>
-      {% if search_q %}<a href="{{ url_for('parties') }}" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
-    </form>
-  </div>
-  {% if search_q and not parties %}
-  <div class="empty-state"><div class="icon">🔍</div>No parties match "{{ search_q }}".</div>
-  {% elif parties %}
-  <table>
-    <thead><tr><th>Name</th><th>Type</th><th>City</th><th>Phone</th><th class="num">Balance</th><th>Status</th><th></th></tr></thead>
-    <tbody>
-      {% for p in parties %}
-      <tr>
-        <td>{{ p.name }}</td>
-        <td>{{ p.party_type }}</td>
-        <td>{{ p.city or "—" }}</td>
-        <td>{{ p.phone or "—" }}</td>
-        <td class="num money">{{ "{:,.2f}".format(p.balance) }}</td>
-        <td>
-          {% if p.status == 'Receivable' %}<span class="badge badge-active">Receivable</span>
-          {% elif p.status == 'Payable' %}<span class="badge badge-expired">Payable</span>
-          {% else %}<span class="badge badge-trial">Settled</span>{% endif %}
-        </td>
-        <td>
-          {% if current_user.can_edit %}
-          <a href="{{ url_for('edit_party', party_id=p.id) }}" class="btn btn-secondary btn-sm">Edit</a>
-          {% endif %}
-          {% if current_user.role == 'admin' %}
-          <form method="post" action="{{ url_for('delete_party', party_id=p.id) }}" onsubmit="return confirm('Delete this party?');" style="display:inline;">
-            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state"><div class="icon">👥</div>No parties yet — add your first customer or supplier above.</div>
-  {% endif %}
-</div>
-{% endblock %}
-{% block scripts %}
-<script>
-  function onPartyTypeChange() {
-    const isBroker = document.getElementById('partyTypeSelect').value === 'Broker';
-    document.getElementById('brokerageFields').style.display = isBroker ? '' : 'none';
-  }
-</script>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Parties · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      searchQ: {{ search_q|tojson }},
+      parties: {{ parties|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-parties.js') }}"></script>
+</body>
+</html>

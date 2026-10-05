@@ -1,36 +1,22 @@
-{% extends "base.html" %}
-{% block title %}Trial Balance{% endblock %}
-{% block page_title %}Trial Balance{% endblock %}
-{% block content %}
-
-<div style="margin-bottom:16px;">
-  <a href="{{ url_for('report_pdf', report_name='trial_balance') }}" target="_blank" class="btn btn-primary">Print / Save PDF</a>
-  <a href="{{ url_for('report_excel', report_name='trial_balance') }}" class="btn btn-secondary">Export to Excel</a>
-</div>
-
-<div class="card">
-  {% if rows %}
-  <table>
-    <thead><tr><th>Party</th><th class="num">Debit (Sale + Payment)</th><th class="num">Credit (Purchase + Receipt)</th><th class="num">Balance</th></tr></thead>
-    <tbody>
-      {% for r in rows %}
-      <tr>
-        <td>{{ r.name }}</td>
-        <td class="num money">{{ "{:,.2f}".format(r.debit) }}</td>
-        <td class="num money">{{ "{:,.2f}".format(r.credit) }}</td>
-        <td class="num money">{{ "{:,.2f}".format(r.balance) }}</td>
-      </tr>
-      {% endfor %}
-      <tr class="party-row">
-        <td>TOTAL</td>
-        <td class="num money">{{ "{:,.2f}".format(total_debit) }}</td>
-        <td class="num money">{{ "{:,.2f}".format(total_credit) }}</td>
-        <td class="num money">{{ "{:,.2f}".format(total_debit - total_credit) }}</td>
-      </tr>
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state"><div class="icon">📊</div>No activity yet.</div>
-  {% endif %}
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Trial Balance · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      rows: {{ rows|tojson }},
+      totalDebit: {{ total_debit|tojson }},
+      totalCredit: {{ total_credit|tojson }},
+      pdfUrl: {{ url_for('report_pdf', report_name='trial_balance')|tojson }},
+      excelUrl: {{ url_for('report_excel', report_name='trial_balance')|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-report-trial-balance.js') }}"></script>
+</body>
+</html>

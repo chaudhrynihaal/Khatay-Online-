@@ -1,18 +1,18 @@
-{% extends "base.html" %}
-{% block title %}Edit Expense{% endblock %}
-{% block page_title %}Edit Expense{% endblock %}
-{% block content %}
-
-<div class="card card-accent">
-  <form method="post">
-    <div class="form-row">
-      <div class="field"><label>Date</label><input type="date" name="date" value="{{ expense.date }}" required></div>
-      <div class="field"><label>Category</label><input type="text" name="category" value="{{ expense.category or '' }}"></div>
-      <div class="field"><label>Amount*</label><input type="number" step="0.01" name="amount" value="{{ expense.amount }}" required></div>
-      <div class="field" style="flex:2;"><label>Description</label><input type="text" name="description" value="{{ expense.description or '' }}"></div>
-    </div>
-    <button type="submit" class="btn btn-primary">Save Changes</button>
-    <a href="{{ url_for('hardware_expenses') }}" class="btn btn-secondary">Cancel</a>
-  </form>
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Edit Expense · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_hardware_page_data.html" %}
+      expense: {{ expense|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/hardware-expense-edit.js') }}"></script>
+</body>
+</html>

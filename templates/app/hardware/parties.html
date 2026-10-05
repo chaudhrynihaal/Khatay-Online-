@@ -1,48 +1,21 @@
-{% extends "base.html" %}
-{% block title %}Customers &amp; Suppliers{% endblock %}
-{% block page_title %}Customers &amp; Suppliers{% endblock %}
-{% block content %}
-
-<div class="tabs no-print">
-  <a href="{{ url_for('hardware_parties', type='Customer') }}" class="{{ 'active' if party_type == 'Customer' }}">Customers</a>
-  <a href="{{ url_for('hardware_parties', type='Supplier') }}" class="{{ 'active' if party_type == 'Supplier' }}">Suppliers</a>
-</div>
-
-<div class="card">
-  {% if parties %}
-  <table>
-    <thead>
-      <tr>
-        <th>Name</th><th>Phone</th><th class="num">Balance</th>
-        {% if party_type == 'Customer' %}<th class="num">Credit Limit</th>{% endif %}
-        <th>GST No.</th><th class="no-print"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for p in parties %}
-      <tr>
-        <td>{{ p.name }}</td>
-        <td>{{ p.phone or "—" }}</td>
-        <td class="num money" style="{{ 'color:var(--red)' if p.balance > 0 }}">{{ "{:,.2f}".format(p.balance) }}</td>
-        {% if party_type == 'Customer' %}
-        <td class="num money" style="{{ 'color:var(--red)' if p.credit_limit > 0 and p.balance > p.credit_limit }}">
-          {{ "{:,.2f}".format(p.credit_limit) if p.credit_limit else "—" }}
-        </td>
-        {% endif %}
-        <td>{{ p.gst_number or "—" }}</td>
-        <td class="no-print" style="white-space:nowrap;">
-          <a href="{{ url_for('hardware_ledger', party_id=p.id, type=party_type) }}" class="btn btn-secondary btn-sm">Ledger</a>
-          <a href="{{ url_for('hardware_edit_party', party_id=p.id) }}" class="btn btn-secondary btn-sm">Edit</a>
-          <form method="post" action="{{ url_for('hardware_delete_party', party_id=p.id) }}" onsubmit="return confirm('Delete this party?');" style="display:inline;">
-            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state"><div class="icon">🤝</div>No {{ "customers" if party_type == "Customer" else "suppliers" }} yet — add one from the Sale Book / Purchase List page.</div>
-  {% endif %}
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Customers &amp; Suppliers · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_hardware_page_data.html" %}
+      partyType: {{ party_type|tojson }},
+      parties: {{ parties|tojson }},
+      editPartyUrlBase: {{ url_for('hardware_edit_party', party_id=0)|tojson }},
+      deletePartyUrlBase: {{ url_for('hardware_delete_party', party_id=0)|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/hardware-parties.js') }}"></script>
+</body>
+</html>

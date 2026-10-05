@@ -1,172 +1,26 @@
-{% extends "base.html" %}
-{% block title %}Kiryana Dashboard{% endblock %}
-{% block page_title %}Kiryana Dashboard{% endblock %}
-{% block content %}
-
-<div class="stat-grid">
-  <div class="stat-card clickable" onclick="toggleBreakdown('stockBreakdown')">
-    <div class="label">Total Stock</div>
-    <div class="value money">{{ "{:g}".format(stock.total_qty) }}</div>
-    <div class="expand-hint">Click for item breakdown ▾</div>
-  </div>
-  <div class="stat-card clickable" onclick="toggleBreakdown('stockBreakdown')">
-    <div class="label">Total Stock Value</div>
-    <div class="value money">Rs. {{ "{:,.0f}".format(stock.total_value) }}</div>
-    <div class="expand-hint">Click for item breakdown ▾</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Cash Balance</div>
-    <div class="value money {{ 'red' if cash_balance < 0 }}">Rs. {{ "{:,.0f}".format(cash_balance) }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Sales Today</div>
-    <div class="value money">Rs. {{ "{:,.0f}".format(sales_today_total) }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Total Sales (all time)</div>
-    <div class="value money">Rs. {{ "{:,.0f}".format(total_sales) }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Net Profit (Sales − Expenses)</div>
-    <div class="value money {{ 'red' if net_profit < 0 }}">Rs. {{ "{:,.0f}".format(net_profit) }}</div>
-  </div>
-  <div class="stat-card clickable" onclick="toggleBreakdown('receivableBreakdown')">
-    <div class="label">Total Receivable</div>
-    <div class="value money">Rs. {{ "{:,.0f}".format(receivable.total) }}</div>
-    <div class="expand-hint">Click for customer breakdown ▾</div>
-  </div>
-  <div class="stat-card clickable" onclick="toggleBreakdown('payableBreakdown')">
-    <div class="label">Total Payable</div>
-    <div class="value money">Rs. {{ "{:,.0f}".format(payable.total) }}</div>
-    <div class="expand-hint">Click for supplier breakdown ▾</div>
-  </div>
-  <div class="stat-card clickable" onclick="toggleBreakdown('lowStockBreakdown')">
-    <div class="label">Low Stock</div>
-    <div class="value money {{ 'red' if low_stock.count > 0 }}">{{ low_stock.count }}</div>
-    <div class="expand-hint">Click for item breakdown ▾</div>
-  </div>
-  <div class="stat-card clickable" onclick="toggleBreakdown('expiringBreakdown')">
-    <div class="label">Expiring Soon (30 days)</div>
-    <div class="value money {{ 'red' if expiring.count > 0 }}">{{ expiring.count }}</div>
-    <div class="expand-hint">Click for batch breakdown ▾</div>
-  </div>
-</div>
-
-<div class="card stat-breakdown" id="stockBreakdown">
-  <h3 style="margin-top:0;">Stock breakdown</h3>
-  {% if stock.breakdown %}
-  <table>
-    <thead><tr><th>Item</th><th>Unit</th><th class="num">Stock Qty</th><th class="num">Value</th></tr></thead>
-    <tbody>
-      {% for b in stock.breakdown %}
-      <tr>
-        <td>{{ b.name }}</td><td>{{ b.unit or "—" }}</td>
-        <td class="num money" style="{{ 'color:var(--red)' if b.stock_qty <= 0 }}">{{ "{:g}".format(b.stock_qty) }}</td>
-        <td class="num money">{{ "{:,.2f}".format(b.value) }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state">No items in inventory yet.</div>
-  {% endif %}
-</div>
-
-<div class="card stat-breakdown" id="receivableBreakdown">
-  <h3 style="margin-top:0;">Receivable breakdown — who owes you</h3>
-  {% if receivable.breakdown %}
-  <table>
-    <thead><tr><th>Customer</th><th class="num">Balance</th><th></th></tr></thead>
-    <tbody>
-      {% for b in receivable.breakdown %}
-      <tr>
-        <td>{{ b.name }}</td><td class="num money">{{ "{:,.2f}".format(b.balance) }}</td>
-        <td><a href="{{ url_for('kiryana_ledger', party_id=b.id, type='Customer') }}" class="btn btn-secondary btn-sm">View Ledger</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state">Nobody owes you anything right now.</div>
-  {% endif %}
-</div>
-
-<div class="card stat-breakdown" id="payableBreakdown">
-  <h3 style="margin-top:0;">Payable breakdown — what you owe</h3>
-  {% if payable.breakdown %}
-  <table>
-    <thead><tr><th>Supplier</th><th class="num">Balance</th><th></th></tr></thead>
-    <tbody>
-      {% for b in payable.breakdown %}
-      <tr>
-        <td>{{ b.name }}</td><td class="num money">{{ "{:,.2f}".format(b.balance) }}</td>
-        <td><a href="{{ url_for('kiryana_ledger', party_id=b.id, type='Supplier') }}" class="btn btn-secondary btn-sm">View Ledger</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state">You don't owe any supplier anything right now.</div>
-  {% endif %}
-</div>
-
-<div class="card stat-breakdown" id="lowStockBreakdown">
-  <h3 style="margin-top:0;">Low stock — at or below reorder level</h3>
-  {% if low_stock.breakdown %}
-  <table>
-    <thead><tr><th>Item</th><th class="num">Stock</th><th class="num">Reorder Level</th><th></th></tr></thead>
-    <tbody>
-      {% for b in low_stock.breakdown %}
-      <tr>
-        <td>{{ b.name }}</td>
-        <td class="num money" style="color:var(--red);">{{ "{:g}".format(b.stock_qty) }} {{ b.unit or "" }}</td>
-        <td class="num money">{{ "{:g}".format(b.reorder_level) }}</td>
-        <td><a href="{{ url_for('kiryana_purchases') }}" class="btn btn-secondary btn-sm">Restock</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state">Nothing is running low right now.</div>
-  {% endif %}
-</div>
-
-<div class="card stat-breakdown" id="expiringBreakdown">
-  <h3 style="margin-top:0;">Expiring soon — next 30 days</h3>
-  {% if expiring.breakdown %}
-  <table>
-    <thead><tr><th>Item</th><th class="num">Qty</th><th>Purchased</th><th>Expiry</th></tr></thead>
-    <tbody>
-      {% for b in expiring.breakdown %}
-      <tr>
-        <td>{{ b.item }}</td>
-        <td class="num money">{{ "{:g}".format(b.qty) }} {{ b.unit or "" }}</td>
-        <td>{{ b.purchase_date }}</td>
-        <td style="{{ 'color:var(--red); font-weight:600;' if b.expired }}">{{ b.expiry_date }}{{ " (expired)" if b.expired }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state">Nothing expiring in the next 30 days.</div>
-  {% endif %}
-</div>
-
-<div class="card">
-  <h2 style="margin-top:0;">Quick actions</h2>
-  <div style="display:flex; gap:10px; flex-wrap:wrap;">
-    <a href="{{ url_for('kiryana_sales') }}" class="btn btn-primary">+ New Sale</a>
-    <a href="{{ url_for('kiryana_purchases') }}" class="btn btn-secondary">+ New Purchase</a>
-    <a href="{{ url_for('kiryana_inventory') }}" class="btn btn-secondary">+ New Item</a>
-    <a href="{{ url_for('kiryana_expenses') }}" class="btn btn-secondary">+ New Expense</a>
-    <button type="button" class="btn btn-secondary no-print" onclick="window.print()">🖨 Print</button>
-  </div>
-</div>
-{% endblock %}
-{% block scripts %}
-<script>
-  function toggleBreakdown(id) {
-    document.getElementById(id).classList.toggle('open');
-  }
-</script>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Dashboard · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_kiryana_page_data.html" %}
+      stock: {{ stock|tojson }},
+      receivable: {{ receivable|tojson }},
+      payable: {{ payable|tojson }},
+      salesTodayTotal: {{ sales_today_total|tojson }},
+      totalSales: {{ total_sales|tojson }},
+      netProfit: {{ net_profit|tojson }},
+      cashBalance: {{ cash_balance|tojson }},
+      lowStock: {{ low_stock|tojson }},
+      expiring: {{ expiring|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/kiryana-dashboard.js') }}"></script>
+</body>
+</html>

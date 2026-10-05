@@ -159,6 +159,22 @@ def _handle_bad_numeric_input(e):
     return redirect(request.referrer or url_for("login"))
 
 
+@app.errorhandler(404)
+def _handle_not_found(e):
+    return render_template("errors/404.html"), 404
+
+
+@app.errorhandler(500)
+def _handle_server_error(e):
+    """Flask's own debug-mode interactive traceback still takes over
+    while app.run(debug=True) (see the __main__ block below) - this
+    branded page is what a real deployment (debug=False, e.g. behind
+    gunicorn) shows instead of the bare default "Internal Server
+    Error" text."""
+    print(f"ERROR: unhandled exception on {request.path}: {e}")
+    return render_template("errors/500.html"), 500
+
+
 # ---------------------------------------------------------------------
 # auth helpers
 # ---------------------------------------------------------------------
@@ -335,7 +351,16 @@ def login():
         session.permanent = True
         if user["role"] == "super_admin":
             return redirect(url_for("admin_dashboard"))
-        return redirect(request.args.get("next") or url_for("business_select"))
+        if request.args.get("next"):
+            return redirect(request.args.get("next"))
+        # once a company has picked a business (see business_choose()),
+        # every later login goes straight there - the "What do you deal
+        # in?" picker only shows again if they haven't chosen yet, or
+        # deliberately go back to it via "Switch business" in the sidebar
+        company = master.get_company(user["company_id"]) if user["company_id"] else None
+        if company and company.get("business_type") in BUSINESS_DASHBOARD_ENDPOINTS:
+            return redirect(url_for(BUSINESS_DASHBOARD_ENDPOINTS[company["business_type"]]))
+        return redirect(url_for("business_select"))
 
     # If already signed in, don't silently bounce away - show who's
     # signed in and let them continue or switch accounts. (Previously
@@ -375,9 +400,9 @@ def forgot_password():
             token, valid_minutes = master.create_password_reset(user["id"])
             reset_url = url_for("reset_password", token=token, _external=True)
             email_utils.send_email(
-                user["email"], "Reset your ULTRA ERP password",
+                user["email"], "Reset your Khatay Online password",
                 f"Hi {user['full_name'] or user['username']},\n\n"
-                f"Someone (hopefully you) requested a password reset for your ULTRA ERP account.\n\n"
+                f"Someone (hopefully you) requested a password reset for your Khatay Online account.\n\n"
                 f"Reset your password here (valid for {valid_minutes} minutes):\n{reset_url}\n\n"
                 f"If you didn't request this, you can safely ignore this email.",
             )
@@ -568,10 +593,33 @@ def admin_change_password():
 # =======================================================================
 # TENANT APP — the actual ERP, scoped to the logged-in company
 # =======================================================================
+BUSINESS_DASHBOARD_ENDPOINTS = {
+    "yarn": "dashboard",
+    "kiryana": "kiryana_dashboard",
+    "hardware": "hardware_dashboard",
+}
+
+
 @app.route("/business")
 @company_required
 def business_select():
     return render_template("app/business_select.html", hide_shell=True)
+
+
+@app.route("/business/choose/<business_type>")
+@company_required
+def business_choose(business_type):
+    """Reached by clicking a card on the "What do you deal in?" screen -
+    records the choice (so future logins skip straight past that screen,
+    see login()'s redirect below) and sends them into the actual
+    dashboard. Not a dead end if the type is somehow invalid (e.g. a
+    stale bookmark from before "Fabric"/"Broker" existed as options) -
+    just bounces back to the picker instead of 404ing."""
+    if business_type not in BUSINESS_DASHBOARD_ENDPOINTS:
+        flash("Unknown business type.", "error")
+        return redirect(url_for("business_select"))
+    master.set_company_business_type(g.company["id"], business_type)
+    return redirect(url_for(BUSINESS_DASHBOARD_ENDPOINTS[business_type]))
 
 
 @app.route("/")
@@ -591,6 +639,12 @@ def dashboard():
     total_receivable = sum(r["outstanding"] for r in receivable)
     total_payable = sum(r["outstanding"] for r in payable)
     overdue_receivable = sum(r["outstanding"] for r in receivable if r["is_overdue"])
+    # distinct-party counts for the dashboard stat cards' captions - purely
+    # presentational (counting rows already fetched above), no new query
+    # or calculation logic
+    receivable_party_count = len({r["party_id"] for r in receivable})
+    payable_party_count = len({r["party_id"] for r in payable})
+    overdue_party_count = len({r["party_id"] for r in receivable if r["is_overdue"]})
 
     month_start = date.today().replace(day=1).isoformat()
     profit = db.get_profit_summary(month_start, as_of)
@@ -599,6 +653,8 @@ def dashboard():
         "app/dashboard.html", party_count=party_count, item_count=item_count,
         total_receivable=total_receivable, total_payable=total_payable,
         overdue_receivable=overdue_receivable, profit=profit,
+        receivable_party_count=receivable_party_count, payable_party_count=payable_party_count,
+        overdue_party_count=overdue_party_count,
     )
 
 
@@ -2004,6 +2060,14 @@ def parties():
     query += " ORDER BY name"
     cur.execute(query, params)
     rows = cur.fetchall()
+    # which parties can't be deleted (has transactions or imported opening
+    # entries) - decided once here, up front, so the UI can soft-disable
+    # the Delete button with an explanation instead of the user finding
+    # out only after clicking it and getting bounced back with a flash
+    cur.execute("SELECT DISTINCT party_id FROM transactions WHERE party_id IS NOT NULL")
+    parties_with_transactions = {r[0] for r in cur.fetchall()}
+    cur.execute("SELECT DISTINCT party_id FROM opening_entries")
+    parties_with_opening_entries = {r[0] for r in cur.fetchall()}
     conn.close()
     parties_list = []
     for pid, name, city, phone, ptype in rows:
@@ -2011,8 +2075,47 @@ def parties():
         parties_list.append({
             "id": pid, "name": name, "city": city, "phone": phone, "party_type": ptype,
             "balance": abs(balance), "status": "Receivable" if balance > 0 else ("Payable" if balance < 0 else "Settled"),
+            "has_history": pid in parties_with_transactions or pid in parties_with_opening_entries,
         })
     return render_template("app/parties.html", parties=parties_list, search_q=search_q)
+
+
+@app.route("/parties/quick-add", methods=["POST"])
+@company_required
+def parties_quick_add():
+    """Adds a party without leaving whatever entry form the user is on
+    (Purchase & Sale, Bookings, Receipt & Payment) - called via JS,
+    returns JSON so the new party can be added straight into that
+    page's dropdown, already selected, with nothing else on the form
+    lost. party_type defaults to Customer, but the Purchase & Sale form
+    passes whichever type actually makes sense for what's being entered
+    (Customer for a Sale, Supplier for a Purchase)."""
+    name = request.form.get("name", "").strip()
+    if not name:
+        return {"ok": False, "error": "Name is required."}, 400
+    party_type = request.form.get("party_type", "").strip() or "Customer"
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM parties WHERE is_gl = 0 AND LOWER(name) = LOWER(?)", (name,))
+    existing = cur.fetchone()
+    if existing:
+        conn.close()
+        return {"ok": False, "error": f"A party named '{name}' already exists."}, 400
+
+    cur.execute(
+        "INSERT INTO parties (name, party_type, is_gl, created_at) VALUES (?,?,0,?)",
+        (name, party_type, db.now_iso()),
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    # "meta" (not "type") matches the {value, label, meta} shape the
+    # Party combobox's options are already built in - see partyOptions
+    # in yarn-transactions.js/yarn-recovery.js/yarn-bookings.js - so the
+    # freshly-added party shows its type tag immediately, not just after
+    # a reload.
+    return {"ok": True, "id": new_id, "name": name, "meta": party_type}
 
 
 @app.route("/parties/<int:party_id>/edit", methods=["GET", "POST"])
@@ -2112,11 +2215,12 @@ def quality():
         conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO quality (name, city_area, sale_rate, opening_balance, created_at) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT INTO quality (name, city_area, sale_rate, opening_balance, purchase_rate, created_at) "
+            "VALUES (?,?,?,?,?,?)",
             (request.form.get("name", "").strip(), request.form.get("city_area", "").strip(),
              float(request.form.get("sale_rate") or 0),
-             float(request.form.get("opening_balance") or 0), db.now_iso()),
+             float(request.form.get("opening_balance") or 0),
+             float(request.form.get("purchase_rate") or 0), db.now_iso()),
         )
         conn.commit()
         conn.close()
@@ -2135,12 +2239,15 @@ def quality():
     query += " ORDER BY name"
     cur.execute(query, params)
     rows = cur.fetchall()
+    cur.execute("SELECT DISTINCT quality_id FROM transactions WHERE quality_id IS NOT NULL")
+    items_with_transactions = {r[0] for r in cur.fetchall()}
     conn.close()
     items = []
     for qid, name, area, srate in rows:
         items.append({"id": qid, "name": name, "area": area,
                        "purchase_rate": db.get_weighted_avg_purchase_rate(qid),
-                       "sale_rate": srate, "stock": db.get_stock_qty(qid)})
+                       "sale_rate": srate, "stock": db.get_stock_qty(qid),
+                       "has_history": qid in items_with_transactions})
     return render_template("app/quality.html", items=items, search_q=search_q)
 
 
@@ -2173,6 +2280,40 @@ def quality_quick_add():
     conn.commit()
     conn.close()
     return {"ok": True, "id": new_id, "name": name}
+
+
+@app.route("/quality/<int:item_id>/edit", methods=["GET", "POST"])
+@company_required
+def edit_quality(item_id):
+    conn = db.get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, city_area, sale_rate, opening_balance, purchase_rate FROM quality WHERE id = ?", (item_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        flash("Item not found.", "error")
+        return redirect(url_for("quality"))
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        if not name:
+            conn.close()
+            flash("Item name is required.", "error")
+            return redirect(url_for("edit_quality", item_id=item_id))
+        cur.execute(
+            "UPDATE quality SET name = ?, city_area = ?, sale_rate = ?, opening_balance = ?, purchase_rate = ? WHERE id = ?",
+            (name, request.form.get("city_area", "").strip(),
+             float(request.form.get("sale_rate") or 0), float(request.form.get("opening_balance") or 0),
+             float(request.form.get("purchase_rate") or 0), item_id),
+        )
+        conn.commit()
+        conn.close()
+        flash("Item updated.", "success")
+        return redirect(url_for("quality"))
+
+    conn.close()
+    item = {"id": row[0], "name": row[1], "area": row[2], "sale_rate": row[3], "opening_balance": row[4], "purchase_rate": row[5]}
+    return render_template("app/quality_edit.html", item=item)
 
 
 @app.route("/quality/<int:item_id>/delete", methods=["POST"])
@@ -2284,7 +2425,9 @@ def transactions():
 
     suggested_do_sale = db.suggest_next_do_no("SALE")
     suggested_do_purchase = db.suggest_next_do_no("PURCHASE")
+    open_bookings = [b for b in db.list_bookings(status="Open") if b["remaining_qty"] > 0]
     return render_template("app/transactions.html", parties=parties_list, items=items, recent=recent,
+                            open_bookings=open_bookings,
                             today=date.today().isoformat(), suggested_do_sale=suggested_do_sale,
                             suggested_do_purchase=suggested_do_purchase, saved_voucher=saved_voucher,
                             search_q=search_q, brokers=brokers)
@@ -2373,9 +2516,13 @@ def deliver_booking(booking_id):
             delivery_date=request.form.get("delivery_date") or None,
         )
         flash("Delivery recorded and posted to the ledger.", "success")
+        if request.form.get("return_to") == "transactions":
+            return redirect(url_for("transactions", saved=new_id))
         return redirect(url_for("bookings", saved=new_id, status=request.args.get("status", "Open")))
     except ValueError as exc:
         flash(str(exc), "error")
+        if request.form.get("return_to") == "transactions":
+            return redirect(url_for("transactions"))
         return redirect(url_for("bookings"))
 
 
@@ -2468,7 +2615,7 @@ def recovery():
         digits = re.sub(r"\D", "", search_q)
         query = """SELECT t.id, t.voucher_no, t.date, t.voucher_type, p.name, t.cash_or_cheque, t.amount, t.description
                    FROM transactions t LEFT JOIN parties p ON p.id = t.party_id
-                   WHERE t.voucher_type IN ('RECEIPT','PAYMENT')
+                   WHERE t.voucher_type IN ('RECEIPT','PAYMENT','CONTRA_DR','CONTRA_CR')
                      AND (p.name LIKE ? OR t.description LIKE ? OR (? != '' AND CAST(t.voucher_no AS TEXT) LIKE ?))
                    ORDER BY t.id DESC LIMIT 200"""
         cur.execute(query, (f"%{search_q}%", f"%{search_q}%", digits, f"%{digits}%" if digits else "%\x00no-match%"))
@@ -2476,12 +2623,15 @@ def recovery():
         cur.execute(
             """SELECT t.id, t.voucher_no, t.date, t.voucher_type, p.name, t.cash_or_cheque, t.amount, t.description
                FROM transactions t LEFT JOIN parties p ON p.id = t.party_id
-               WHERE t.voucher_type IN ('RECEIPT','PAYMENT') ORDER BY t.id DESC LIMIT 40"""
+               WHERE t.voucher_type IN ('RECEIPT','PAYMENT','CONTRA_DR','CONTRA_CR') ORDER BY t.id DESC LIMIT 40"""
         )
     recent = []
     for tid, vno, tdate, vtype, pname, mode, amount, desc in cur.fetchall():
-        n_cheques = len(db.get_cheques_for_transaction(tid))
-        mode_display = f"{n_cheques} cheque(s)" if n_cheques else (mode or "Cash")
+        if vtype in ("CONTRA_DR", "CONTRA_CR"):
+            mode_display = "Contra"
+        else:
+            n_cheques = len(db.get_cheques_for_transaction(tid))
+            mode_display = f"{n_cheques} cheque(s)" if n_cheques else (mode or "Cash")
         recent.append({"id": tid, "voucher": db.format_voucher_no(vtype, vno), "date": tdate, "type": vtype,
                         "party": pname, "mode": mode_display, "amount": amount, "description": desc})
     conn.close()
@@ -2665,8 +2815,8 @@ def report_receivable():
             by_party[r["party_id"]] = []
             order.append(r["party_id"])
         by_party[r["party_id"]].append(r)
-    groups = [{"party_name": by_party[pid][0]["party_name"], "rows": by_party[pid],
-               "subtotal": sum(x["outstanding"] for x in by_party[pid])} for pid in order]
+    groups = [{"party_name": by_party[pid][0]["party_name"], "party_phone": by_party[pid][0]["party_phone"],
+               "rows": by_party[pid], "subtotal": sum(x["outstanding"] for x in by_party[pid])} for pid in order]
     total = sum(g["subtotal"] for g in groups)
     overdue = sum(r["outstanding"] for r in rows if r["is_overdue"])
     return render_template("app/receivable.html", groups=groups, total=total, overdue=overdue, as_of=as_of)
@@ -2710,6 +2860,14 @@ def report_profit():
     return render_template("app/profit.html", profit=profit, capital=capital, date_from=date_from, date_to=date_to)
 
 
+@app.route("/reports/balance-sheet")
+@company_required
+def report_balance_sheet():
+    as_of = request.args.get("as_of") or date.today().isoformat()
+    bs = db.get_balance_sheet(as_of)
+    return render_template("app/balance_sheet.html", bs=bs)
+
+
 @app.route("/reports/brokerage")
 @company_required
 def report_brokerage():
@@ -2741,14 +2899,35 @@ def report_brokerage():
     groups = [{"broker_name": by_broker[k][0]["broker_name"], "rows": by_broker[k],
                "subtotal": sum(x["brokerage"] for x in by_broker[k])} for k in order]
     total = sum(g["subtotal"] for g in groups)
+    summary = db.get_brokerage_summary(broker_party_id=broker_filter)
 
     return render_template("app/brokerage.html", groups=groups, total=total, brokers=brokers,
-                            broker_filter=broker_filter, search_q=search_q)
+                            broker_filter=broker_filter, search_q=search_q, summary=summary,
+                            today=date.today().isoformat())
+
+
+@app.route("/reports/brokerage/pay", methods=["POST"])
+@company_required
+def report_brokerage_pay():
+    broker_id = request.form.get("broker_id", type=int)
+    amount = float(request.form.get("amount") or 0)
+    if not broker_id or amount <= 0:
+        flash("Pick a broker and enter a valid amount.", "error")
+        return redirect(url_for("report_brokerage"))
+    db.record_brokerage_payment(broker_id, request.form.get("date"), amount,
+                                 request.form.get("description", "").strip())
+    flash("Brokerage payment recorded.", "success")
+    return redirect(url_for("report_brokerage", broker_id=broker_id))
 
 
 @app.route("/contra", methods=["GET", "POST"])
 @company_required
 def contra():
+    """Contra entries are entered from Receipt & Payment now (Mode:
+    Contra) rather than their own page - this route still does the
+    actual saving (unchanged validation/behavior), it just sends people
+    back to Receipt & Payment afterward instead of rendering its own
+    page. A GET here (an old bookmark/link) just redirects there too."""
     if request.method == "POST":
         try:
             legs = []
@@ -2764,48 +2943,15 @@ def contra():
             flash(f"Contra entry saved as {db.format_voucher_no('CONTRA_DR', voucher_no)}.", "success")
         except ValueError as exc:
             flash(str(exc), "error")
-        return redirect(url_for("contra"))
+        return redirect(url_for("recovery"))
 
-    conn = db.get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, name, party_type FROM parties WHERE is_gl = 0 ORDER BY name")
-    parties_list = [{"id": r[0], "name": r[1], "type": r[2]} for r in cur.fetchall()]
-    conn.close()
-
-    entries = db.list_contra_entries()
-    return render_template("app/contra.html", parties=parties_list, entries=entries,
-                            today=date.today().isoformat())
+    return redirect(url_for("recovery"))
 
 
 @app.route("/reports/trial-balance")
 @company_required
 def report_trial_balance():
-    conn = db.get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, name, opening_balance FROM parties WHERE is_gl = 0 ORDER BY name")
-    parties_rows = cur.fetchall()
-    conn.close()
-
-    rows = []
-    total_debit = total_credit = 0.0
-    for party_id, name, opening_balance in parties_rows:
-        conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT voucher_type, SUM(amount) FROM transactions WHERE party_id = ? GROUP BY voucher_type",
-                     (party_id,))
-        sums = {r[0]: (r[1] or 0.0) for r in cur.fetchall()}
-        conn.close()
-        opening_balance = opening_balance or 0.0
-        debit = (opening_balance if opening_balance > 0 else 0) + sums.get("SALE", 0) + sums.get("PAYMENT", 0)
-        credit = (abs(opening_balance) if opening_balance < 0 else 0) + sums.get("PURCHASE", 0) + sums.get("RECEIPT", 0)
-        balance = opening_balance + sums.get("SALE", 0) + sums.get("PAYMENT", 0) \
-            - sums.get("PURCHASE", 0) - sums.get("RECEIPT", 0)
-        if debit == 0 and credit == 0 and opening_balance == 0:
-            continue
-        total_debit += debit
-        total_credit += credit
-        rows.append({"name": name, "debit": debit, "credit": credit, "balance": balance})
-
+    rows, total_debit, total_credit = db.get_trial_balance()
     return render_template("app/trial_balance.html", rows=rows, total_debit=total_debit, total_credit=total_credit)
 
 
@@ -2817,11 +2963,16 @@ def report_stock():
     cur.execute("SELECT id, name, city_area, sale_rate, opening_balance FROM quality ORDER BY name")
     items = []
     for qid, name, area, srate, opening in cur.fetchall():
+        purchase_rate = db.get_weighted_avg_purchase_rate(qid)
+        stock = db.get_stock_qty(qid)
         items.append({"name": name, "area": area, "sale_rate": srate,
-                       "purchase_rate": db.get_weighted_avg_purchase_rate(qid),
-                       "stock": db.get_stock_qty(qid)})
+                       "purchase_rate": purchase_rate, "stock": stock,
+                       "value": stock * purchase_rate})
     conn.close()
-    return render_template("app/stock.html", items=items)
+    total_value = sum(i["value"] for i in items if i["stock"] > 0)
+    negative_stock_count = sum(1 for i in items if i["stock"] < 0)
+    return render_template("app/stock.html", items=items, total_value=total_value,
+                            negative_stock_count=negative_stock_count)
 
 
 @app.route("/reports/quality-ledger")
@@ -2833,12 +2984,17 @@ def report_quality_ledger():
     items_list = [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
     conn.close()
 
+    view = request.args.get("view", "overall")
+    if view not in ("overall", "count", "rate"):
+        view = "overall"
     quality_id = request.args.get("quality_id", type=int)
-    ledger = db.get_quality_ledger(quality_id) if quality_id else None
-    if quality_id and not ledger:
+    ledger = db.get_quality_ledger(quality_id) if (view == "overall" and quality_id) else None
+    if view == "overall" and quality_id and not ledger:
         flash("Item not found.", "error")
+    summary = db.get_quality_ledger_summary() if view in ("count", "rate") else None
 
-    return render_template("app/quality_ledger.html", items=items_list, quality_id=quality_id, ledger=ledger)
+    return render_template("app/quality_ledger.html", items=items_list, quality_id=quality_id,
+                            ledger=ledger, view=view, summary=summary)
 
 
 @app.route("/reports/ledger")
@@ -2846,7 +3002,13 @@ def report_quality_ledger():
 def report_ledger():
     conn = db.get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, name, party_type FROM parties WHERE is_gl = 0 ORDER BY name")
+    # every party is selectable here, including the GL accounts (Home/
+    # Office Expense, Zakat, Capital Account) - this is also the
+    # Expense Ledger and Capital Ledger, just reached by picking one of
+    # those instead of a trading party (their party_type is literally
+    # 'GL', which already shows as a "(GL)" tag via the existing
+    # "name (type)" label in yarn-report-ledger.js's party picker)
+    cur.execute("SELECT id, name, party_type FROM parties ORDER BY (is_gl = 1), name")
     parties_list = [{"id": r[0], "name": r[1], "type": r[2]} for r in cur.fetchall()]
 
     party_id = request.args.get("party_id", type=int)
@@ -2913,7 +3075,13 @@ def report_ledger():
                 else:
                     amount = entry["amount"] or 0
                     ref = db.format_voucher_no(entry["voucher_type"], entry["voucher_no"])
-                    if entry["voucher_type"] in ("SALE", "PAYMENT"):
+                    # same debit/credit sides as get_trial_balance()'s
+                    # per-party formula - SALE/PAYMENT alone only covers
+                    # ordinary customers/suppliers; a GL account (Home/
+                    # Office Expense, Capital Account) also sees EXPENSE/
+                    # CAPITAL_IN/CAPITAL_OUT/CONTRA_DR/CONTRA_CR postings,
+                    # which need their own correct side too
+                    if entry["voucher_type"] in ("SALE", "PAYMENT", "CONTRA_DR", "EXPENSE", "CAPITAL_OUT"):
                         debit, credit = amount, 0
                         balance += amount
                         total_debit += amount
@@ -2954,9 +3122,14 @@ def report_pdf(report_name):
         elif report_name == "profit":
             path = pdf_export.generate_profit_report_pdf(request.args.get("from"), request.args.get("to"))
         elif report_name == "stock":
-            path = pdf_export.generate_stock_report_pdf()
+            with_value = request.args.get("with_value", "1") != "0"
+            path = pdf_export.generate_stock_report_pdf(with_value=with_value)
         elif report_name == "trial_balance":
             path = pdf_export.generate_trial_balance_pdf()
+        elif report_name == "balance_sheet":
+            path = pdf_export.generate_balance_sheet_pdf(request.args.get("as_of"))
+        elif report_name == "brokerage":
+            path = pdf_export.generate_brokerage_bill_pdf(request.args.get("broker_id", type=int))
         else:
             flash("Unknown report.", "error")
             return redirect(url_for("dashboard"))
@@ -2992,9 +3165,12 @@ def report_excel(report_name):
             date_to = request.args.get("to") or date.today().isoformat()
             path = excel_export.generate_profit_excel(date_from, date_to)
         elif report_name == "stock":
-            path = excel_export.generate_stock_excel()
+            with_value = request.args.get("with_value", "1") != "0"
+            path = excel_export.generate_stock_excel(with_value=with_value)
         elif report_name == "trial_balance":
             path = excel_export.generate_trial_balance_excel()
+        elif report_name == "balance_sheet":
+            path = excel_export.generate_balance_sheet_excel(request.args.get("as_of"))
         elif report_name == "brokerage":
             path = excel_export.generate_brokerage_excel(request.args.get("broker_id", type=int))
         else:

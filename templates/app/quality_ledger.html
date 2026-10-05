@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Purchase / Sale Ledger · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      items: {{ items|tojson }},
+      qualityId: {{ quality_id|tojson }},
+      view: {{ view|tojson }},
+      ledger: {{ ledger|tojson }},
+      summary: {{ summary|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-report-quality-ledger.js') }}"></script>
+</body>
+</html>

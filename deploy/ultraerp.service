@@ -12,20 +12,26 @@
 Description=ULTRA ERP web application
 After=network.target
 
+# modest safety limits - restart if it somehow runs away, but don't
+# let a crash loop hammer the machine
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=ultraerp
 WorkingDirectory=/opt/ultraerp
 Environment="PORT=8000"
+# unbuffer stdout/stderr - without this, Python block-buffers output
+# when it's not an interactive terminal (i.e. always, under systemd),
+# so print() statements (including the first-run super-admin password)
+# can sit in memory instead of reaching `journalctl` until the buffer
+# fills or the process exits, which for a long-running server is never
+Environment="PYTHONUNBUFFERED=1"
 EnvironmentFile=/opt/ultraerp/.env
 ExecStart=/opt/ultraerp/venv/bin/python3 /opt/ultraerp/serve.py
 Restart=always
 RestartSec=3
-
-# modest safety limits - restart if it somehow runs away, but don't
-# let a crash loop hammer the machine
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

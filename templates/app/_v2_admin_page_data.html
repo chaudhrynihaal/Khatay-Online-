@@ -1,0 +1,17 @@
+{# Common window.__PAGE__ fields for the super-admin panel - much
+   smaller than the tenant-side page-data includes since a super_admin
+   is never attached to a company (g.company is always None for them,
+   see load_tenant_context in app.py): no isAdmin/canEdit tenant-role
+   concepts apply, and companyName is always the literal "Khatay"
+   platform brand, never a tenant's own name. #}
+companyName: "Khatay",
+userName: {{ (current_user.full_name or current_user.username)|tojson }},
+userInitial: {{ (current_user.full_name or current_user.username)[0]|upper|tojson }},
+logoutUrl: {{ url_for('logout')|tojson }},
+csrfToken: {{ csrf_token()|tojson }},
+flashes: {{ get_flashed_messages(with_categories=true)|tojson }},
+nav: {
+  companies: {{ url_for('admin_dashboard')|tojson }},
+  subscriptions: {{ url_for('admin_subscriptions')|tojson }},
+  changePassword: {{ url_for('admin_change_password')|tojson }}
+},

@@ -1,44 +1,23 @@
-{% extends "base.html" %}
-{% block title %}Payable Ledger{% endblock %}
-{% block page_title %}Payable Ledger{% endblock %}
-{% block content %}
-
-<form method="get" style="display:flex; gap:10px; align-items:end; margin-bottom:16px;">
-  <div class="field" style="margin-bottom:0;"><label>Status as of</label><input type="date" name="as_of" value="{{ as_of }}"></div>
-  <button type="submit" class="btn btn-secondary">Refresh</button>
-  <a href="{{ url_for('report_pdf', report_name='payable', as_of=as_of) }}" target="_blank" class="btn btn-primary">Print / Save PDF</a>
-  <a href="{{ url_for('report_excel', report_name='payable', as_of=as_of) }}" class="btn btn-secondary">Export to Excel</a>
-</form>
-
-<div class="stat-grid">
-  <div class="stat-card"><div class="label">Total Outstanding</div><div class="value money">Rs. {{ "{:,.0f}".format(total) }}</div></div>
-  <div class="stat-card"><div class="label">Overdue</div><div class="value money red">Rs. {{ "{:,.0f}".format(overdue) }}</div></div>
-</div>
-
-<div class="card">
-  {% if groups %}
-  <table>
-    <thead><tr><th>Inv # / Party</th><th>Date</th><th>D.O.#</th><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Full Amount</th><th class="num">Remaining</th><th>Credit Days</th><th>Due Date</th><th>Status</th></tr></thead>
-    <tbody>
-      {% for grp in groups %}
-      <tr class="party-row"><td>{{ grp.party_name }}</td><td colspan="6"></td><td class="num money">{{ "{:,.2f}".format(grp.subtotal) }}</td><td colspan="2"></td></tr>
-      {% for r in grp.rows %}
-      <tr class="{{ 'overdue' if r.is_overdue }}">
-        <td style="padding-left:24px;">{{ r.voucher_display }}</td>
-        <td>{{ r.date }}</td><td>{{ r.do_no or "—" }}</td><td>{{ r.item_name or "—" }}</td>
-        <td class="num money">{{ "{:g}".format(r.qty) if r.qty else "—" }}</td>
-        <td class="num money">{{ "{:,.2f}".format(r.rate) if r.rate else "—" }}</td>
-        <td class="num money">{{ "{:,.2f}".format(r.full_amount) }}</td>
-        <td class="num money">{{ "{:,.2f}".format(r.outstanding) }}</td>
-        <td>{{ r.credit_days }}</td><td>{{ r.due_date or "—" }}</td>
-        <td>{% if r.is_overdue %}Overdue by {{ r.days }}d{% elif r.status == 'Due today' %}Due today{% else %}Not due ({{ r.days }}d){% endif %}</td>
-      </tr>
-      {% endfor %}
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty-state"><div class="icon">✅</div>Nothing outstanding — every purchase invoice is fully paid.</div>
-  {% endif %}
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Payable Ledger · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      asOf: {{ as_of|tojson }},
+      groups: {{ groups|tojson }},
+      total: {{ total|tojson }},
+      overdue: {{ overdue|tojson }},
+      pdfUrl: {{ url_for('report_pdf', report_name='payable')|tojson }},
+      excelUrl: {{ url_for('report_excel', report_name='payable')|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-report-payable.js') }}"></script>
+</body>
+</html>

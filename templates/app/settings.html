@@ -1,68 +1,25 @@
-{% extends "base.html" %}
-{% block title %}Settings{% endblock %}
-{% block page_title %}Company Settings{% endblock %}
-{% block content %}
-
-<form method="post" enctype="multipart/form-data">
-  <div class="card">
-    <h2 style="margin-top:0;">Company</h2>
-    <div class="field" style="max-width:360px;">
-      <label>Company name (shown on every report and invoice)</label>
-      <input type="text" name="company_name" value="{{ company_name }}">
-    </div>
-    <div class="field" style="max-width:480px;">
-      <label>Warehouse address (printed on sale/purchase D.O. slips)</label>
-      <input type="text" name="warehouse_address" value="{{ warehouse_address }}" placeholder="e.g. Plot 12, Industrial Area, Faisalabad">
-    </div>
-    <div class="field" style="max-width:360px;">
-      <label>Logo (PNG/JPG, printed on invoices and vouchers)</label>
-      {% if logo_filename %}
-      <div style="margin-bottom:8px;"><img src="{{ url_for('company_logo', filename=logo_filename) }}" style="height:48px; border-radius:6px; border:1px solid var(--border);"></div>
-      {% endif %}
-      <input type="file" name="logo" accept="image/png,image/jpeg,image/gif">
-    </div>
-  </div>
-
-  <div class="card">
-    <h2 style="margin-top:0;">Color theme</h2>
-    <input type="hidden" name="theme" id="themeInput" value="{{ theme }}">
-    <div class="color-swatches">
-      {% for name, palette in themes.items() %}
-      <div class="color-swatch {{ 'selected' if name == theme }}" style="background:{{ palette.primary }};" onclick="selectTheme('{{ name }}', this)">{{ name }}</div>
-      {% endfor %}
-    </div>
-  </div>
-
-  <div class="card">
-    <h2 style="margin-top:0;">Opening Cash Balance</h2>
-    <p style="color:var(--ink-soft); font-size:13px;">Cash-in-hand as of a starting date — the Cash Book adds every transaction from that date onward on top of it.</p>
-    <div class="form-row">
-      <div class="field"><label>Amount</label><input type="number" step="0.01" name="opening_cash_balance" value="{{ opening_cash_balance }}"></div>
-      <div class="field"><label>As of date</label><input type="date" name="opening_cash_date" value="{{ opening_cash_date }}"></div>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2 style="margin-top:0;">Daily Email Reports</h2>
-    <p style="color:var(--ink-soft); font-size:13px;">
-      If set, this address gets the Receivable, Payable, Cash Book, and Stock reports emailed automatically
-      every day. Leave blank to turn this off.
-    </p>
-    <div class="field" style="max-width:360px;">
-      <label>Notification email</label>
-      <input type="email" name="notification_email" value="{{ notification_email }}" placeholder="admin@yourcompany.com">
-    </div>
-  </div>
-
-  <button type="submit" class="btn btn-primary">Save Settings</button>
-</form>
-{% endblock %}
-{% block scripts %}
-<script>
-  function selectTheme(name, el) {
-    document.getElementById('themeInput').value = name;
-    document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
-    el.classList.add('selected');
-  }
-</script>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Settings · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_page_data.html" %}
+      settingsCompanyName: {{ company_name|tojson }},
+      theme: {{ theme|tojson }},
+      themes: {{ themes|tojson }},
+      openingCashBalance: {{ opening_cash_balance|tojson }},
+      openingCashDate: {{ opening_cash_date|tojson }},
+      warehouseAddress: {{ warehouse_address|tojson }},
+      notificationEmail: {{ notification_email|tojson }},
+      logoUrl: {{ (url_for('company_logo', filename=logo_filename) if logo_filename else None)|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/yarn-settings.js') }}"></script>
+</body>
+</html>

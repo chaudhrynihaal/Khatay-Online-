@@ -1,25 +1,20 @@
-{% extends "base.html" %}
-{% block title %}Edit Entry{% endblock %}
-{% set txn_type_labels = {"SALE": "Sale", "PURCHASE": "Purchase", "SALE_RETURN": "Sale Return", "PURCHASE_RETURN": "Purchase Return"} %}
-{% block page_title %}Edit {{ txn_type_labels.get(txn.txn_type, txn.txn_type) }} Entry{% endblock %}
-{% block content %}
-
-<div class="card card-accent">
-  <form method="post">
-    <input type="hidden" name="return_to" value="{{ return_to }}">
-    <div class="form-row">
-      <div class="field"><label>Date</label><input type="date" name="date" value="{{ txn.date }}" required></div>
-      <div class="field"><label>Party</label><input type="text" value="{{ party.name if party else 'Walk-in' }}" disabled></div>
-      <div class="field"><label>Mode</label><input type="text" value="{{ txn.mode }}" disabled></div>
-    </div>
-    <div class="form-row">
-      <div class="field"><label>Qty*</label><input type="number" step="0.01" name="qty" value="{{ txn.qty }}" required></div>
-      <div class="field"><label>Rate*</label><input type="number" step="0.01" name="rate" value="{{ txn.rate }}" required></div>
-      <div class="field" style="flex:2;"><label>Description</label><input type="text" name="description" value="{{ txn.description or '' }}"></div>
-    </div>
-    <p style="color:var(--ink-soft); font-size:12.5px;">Item, party, and mode can't be changed here — delete and re-enter if you picked the wrong one. Stock is adjusted automatically for any quantity change.</p>
-    <button type="submit" class="btn btn-primary">Save Changes</button>
-    <a href="{{ return_to }}" class="btn btn-secondary">Cancel</a>
-  </form>
-</div>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "app/_v2_head.html" %}
+  <title>Edit Entry · {{ company_name }}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__PAGE__ = {
+      {% include "app/_v2_hardware_page_data.html" %}
+      txn: {{ txn|tojson }},
+      party: {{ party|tojson }},
+      returnTo: {{ return_to|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/pages/ds-shell.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages/hardware-transaction-edit.js') }}"></script>
+</body>
+</html>
